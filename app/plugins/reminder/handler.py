@@ -17,6 +17,8 @@ PATTERNS = [
     (r"^(\d+)h$", "hours"),
     (r"^tomorrow\s+(\d{1,2}):(\d{2})$", "tomorrow"),
     (r"^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})$", "date"),
+    (r"^today(?:\s+(\d{1,2}):(\d{2}))?$", "today"),
+    (r"^now$", "now"),
 ]
 
 
@@ -49,6 +51,19 @@ def _parse_time(text: str) -> datetime | None:
                 hour=h, minute=m, tzinfo=WIB
             )
             return dt.astimezone(timezone.utc)
+        elif kind == "today":
+            now = datetime.now(WIB)
+            if match.group(1) and match.group(2):
+                h, m = int(match.group(1)), int(match.group(2))
+            else:
+                # Default to next hour
+                h, m = now.hour + 1, 0
+                if h >= 24:
+                    h = 23
+            dt = now.replace(hour=h, minute=m, second=0, microsecond=0)
+            return dt.astimezone(timezone.utc)
+        elif kind == "now":
+            return datetime.now(timezone.utc) + timedelta(minutes=1)
 
     return None
 

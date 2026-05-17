@@ -117,6 +117,7 @@ async def _handle_pending_reply(chat_id: int, text: str, state: dict) -> str | N
 async def _execute_pending_actions(chat_id: int, state: dict) -> str:
     """Execute all actions after user confirmed."""
     from app.plugins.brain.handler import BrainPlugin
+    from app.plugins.base import BotContext
 
     actions = state.get("actions", [])
     pending_state.clear(chat_id)
@@ -124,6 +125,17 @@ async def _execute_pending_actions(chat_id: int, state: dict) -> str:
     brain = PluginRegistry.get().get_plugin("brain")
     if not isinstance(brain, BrainPlugin):
         return "⚠️ Brain not available."
+
+    # Create a minimal context so _route_single has something to work with
+    fake_ctx = BotContext(
+        chat_id=chat_id,
+        user_id=0,
+        username="user",
+        message_text=state.get("original_text", ""),
+        is_group=False,
+        raw_update=None,
+    )
+    brain._original_ctx = fake_ctx
 
     replies = []
     for item in actions:
@@ -152,6 +164,7 @@ async def _execute_pending_actions(chat_id: int, state: dict) -> str:
 async def _process_single_action(chat_id: int, action: dict) -> str | None:
     """Process a single validated action."""
     from app.plugins.brain.handler import BrainPlugin
+    from app.plugins.base import BotContext
 
     brain = PluginRegistry.get().get_plugin("brain")
     if not isinstance(brain, BrainPlugin):
@@ -161,6 +174,14 @@ async def _process_single_action(chat_id: int, action: dict) -> str | None:
     if not action_name:
         return None
 
+    brain._original_ctx = BotContext(
+        chat_id=chat_id,
+        user_id=0,
+        username="user",
+        message_text="",
+        is_group=False,
+        raw_update=None,
+    )
     return await brain._route_single(action_name, action)
 
 

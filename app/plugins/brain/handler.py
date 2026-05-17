@@ -65,6 +65,7 @@ class BrainPlugin(Plugin):
 
             actions = self._parse_actions(response.text)
             if not actions:
+                logger.warning("No actions parsed from Gemini response")
                 return None
 
             return await self._validate_and_route(ctx, actions)
@@ -85,6 +86,12 @@ class BrainPlugin(Plugin):
 
     def _parse_actions(self, text: str) -> list[dict[str, Any]] | None:
         text = text.strip()
+
+        # Strip markdown code fences — Gemini sometimes wraps JSON in ```json ... ```
+        text = re.sub(r"```(?:json)?\s*(.*?)\s*```", r"\1", text, flags=re.DOTALL).strip()
+        # Also strip inline backtick wrapping
+        text = re.sub(r"^`(.*)`$", r"\1", text.strip())
+
         try:
             data = json.loads(text)
             if isinstance(data, dict):
@@ -266,15 +273,20 @@ class BrainPlugin(Plugin):
         alerts = params.get("alerts", [15, 5])
 
         if not text or not time_str:
+            logger.debug("Missing text or time for remind: text=%s time=%s", text, time_str)
             return None
 
         ctx = self._original_ctx
         if not ctx:
+            logger.debug("No original context for remind")
             return None
 
         remind_at = _parse_time(time_str)
         if not remind_at:
             remind_at = self._parse_natural_time(time_str)
+
+        if not remind_at:
+            logger.debug("Could not parse time: %s", time_str)
 
         if not remind_at:
             return None

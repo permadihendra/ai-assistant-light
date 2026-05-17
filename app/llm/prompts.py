@@ -59,5 +59,7 @@ Rules:
 4. Extract time naturally: "tomorrow 9am", "in 2 hours", "next monday", "2026-06-01 08:00"
 5. Default alerts for reminders: [15, 5] (15min and 5min before)
 6. For "chat": keep it short, punchy, and on-brand with your personality.
-7. Output ONLY valid JSON. No markdown, no extra text.
+7. Output RAW JSON only. NEVER wrap in markdown code blocks (```json).
+   Start your response with {{ and end with }} or [].
+   No explanations, no backticks, no extra text.
 """
