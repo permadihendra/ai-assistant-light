@@ -60,13 +60,15 @@ class BrainPlugin(Plugin):
                     LLMMessage(role="system", content=BRAIN_SYSTEM_PROMPT),
                     LLMMessage(role="user", content=ctx.message_text),
                 ],
-                max_tokens=512,
-                timeout=15.0,
+                max_tokens=1024,
+                timeout=20.0,
             )
 
-            actions = self._parse_actions(response.text)
+            raw = response.text
+            logger.info("Gemini raw: %.500s", raw)
+            actions = self._parse_actions(raw)
             if not actions:
-                logger.warning("No actions parsed from Gemini response")
+                logger.warning("Parse failed for: %.200s", raw)
                 return None
 
             return await self._validate_and_route(ctx, actions)
