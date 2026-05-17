@@ -8,8 +8,15 @@ from app.plugins.base import BotContext, Plugin
 
 logger = logging.getLogger(__name__)
 
-SCRIPT_NAME_RE = re.compile(r"^[a-zA-Z0-9_\-]+\.sh$")
+# Allow both .sh and .py scripts
+SCRIPT_NAME_RE = re.compile(r"^[a-zA-Z0-9_\-]+\.(sh|py)$")
 MAX_OUTPUT_CHARS = 2000
+
+# Map extension to interpreter
+_INTERPRETERS = {
+    ".sh": "/bin/bash",
+    ".py": "python3",
+}
 
 
 class ScriptRunnerPlugin(Plugin):
@@ -38,24 +45,31 @@ class ScriptRunnerPlugin(Plugin):
 
         # Validate script name
         if not SCRIPT_NAME_RE.match(script_name):
-            return "❌ Invalid script name. Use only `[a-zA-Z0-9_-].sh`."
+            return (
+                "❌ Invalid script name. Use `[a-zA-Z0-9_-].sh` or `[a-zA-Z0-9_-].py`."
+            )
 
-        # Build safe path
-        scripts_dir = os.path.normpath(settings.scripts_dir)
-        script_path = os.path.join(scripts_dir, script_name)
-        script_path = os.path.normpath(script_path)
+        # Determine interpreter based on extension
+        _, ext = os.path.splitext(script_name)
+        interpreter = _INTERPRETERS.get(ext)
+        if not interpreter:
+            return f"❌ Unsupported script type: {ext}"
+
+        # Build safe path — always work with absolute paths
+        scripts_dir = os.path.abspath(os.path.normpath(settings.scripts_dir))
+        script_path = os.path.normpath(os.path.join(scripts_dir, script_name))
 
         # Prevent path traversal
-        if not script_path.startswith(os.path.abspath(scripts_dir)):
+        if not script_path.startswith(scripts_dir + os.sep):
             return "❌ Path traversal detected."
 
         if not os.path.isfile(script_path):
-            return f"❌ Script `{script_name}` not found in `{scripts_dir}/`."
+            return f"❌ Script `{script_name}` not found in scripts directory."
 
         # Execute with explicit args — shell=True is FORBIDDEN
         try:
             proc = await asyncio.create_subprocess_exec(
-                "/bin/bash",
+                interpreter,
                 script_path,
                 *script_args,
                 stdout=asyncio.subprocess.PIPE,
