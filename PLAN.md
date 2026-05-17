@@ -776,3 +776,113 @@ Bot:  ⚠️ Partial success:
 | Multiple actions, one fails | Partial success with ❌ indicator |
 | User ignores bot's question | Next message starts fresh (clears old pending) |
 | Picker callback arrives late | Validate pending still exists; ignore if stale |
+
+---
+
+# Refine /reminders + Link Reminder to Source
+
+## Problem 1: `/reminders` Output
+
+Current format is cluttered:
+```
+📋 *Your reminders:*
+  `1` — Briefing tim — <t:1717200000:R>
+  `2` — Meeting klien — <t:1717286400:R>
+```
+
+Wanted: clean table with proper columns:
+```
+📋 *Your Reminders*
+┌──────┬──────────────────────────┬──────────────────┐
+│ ID   │ Agenda                   │ Time             │
+├──────┼──────────────────────────┼──────────────────┤
+│ #1   │ Briefing tim dengan klien│ Mon, 1 Jun 09:00 │
+│ #2   │ Meeting klien            │ Tue, 2 Jun 10:00 │
+│ #3   │ Workshop Digitalisasi    │ Wed, 3 Jun 09:00 │
+└──────┴──────────────────────────┴──────────────────┘
+🔔 Each alerts 10min before
+/cancel <id> to cancel, /note <id> for more detail
+```
+
+Since Telegram Markdown doesn't support tables natively, use a **monospace code block** with aligned columns, or a clean **bullet list with consistent formatting**:
+
+```
+📋 *Your Reminders*
+  #1  Briefing tim — Mon, 1 Jun 09:00  🔔 10min
+  #2  Meeting klien — Tue, 2 Jun 10:00  🔔 10min
+  #3  Workshop      — Wed, 3 Jun 09:00  🔔 10min
+
+Use /cancel <id> or /note <id> for details.
+```
+
+## Problem 2: Link Reminder to Source Message
+
+When Gemini distills a forwarded agenda, details can get lost:
+```
+Original: "📅 SENIN, 1 JUNI 2024
+09:00 - Briefing tim dengan klien membahas proposal project
+10:00 - Meeting internal review progress sprint"
+
+Saved as: "Briefing tim dengan klien"  ← details lost!
+```
+
+### Solution: Store `source_text` + `/note <id>` for reminders
+
+**New column:** `source_text TEXT` in reminders table. Stores the original full message.
+
+**Flow:**
+```
+1. User forwards agenda
+2. Brain distills → saves reminder with distilled text + source_text
+3. User types /note 2
+   Bot: 📌 *Reminder #2 source:*
+        Briefing tim dengan klien membahas proposal project
+```
+
+**Changes:**
+- Migration `005_source_text.sql` — add `source_text` column
+- `ReminderPlugin.create_reminder()` — accept `source_text` param
+- `BrainPlugin._handle_remind_create()` — pass original message as source
+- `NotesPlugin` or `ReminderPlugin` — `/note <id>` shows reminder source
+- `ReminderPlugin._list_reminders()` — cleaner table format
+
+## Files to Change
+
+| File | What |
+|---|---|
+| `migrations/005_source_text.sql` | **Create** — add source_text column |
+| `app/database.py` | Runs new migration |
+| `app/plugins/reminder/handler.py` | **Update** — cleaner list, accept source_text, /note for reminders |
+| `app/plugins/brain/handler.py` | **Update** — pass original_text as source |
+| `app/plugins/notes/handler.py` | **Update** — /note for BOTH notes and reminders |
+| `INFORMATION.md` | Update status |
+
+## UX Flow
+
+```
+User:  *Info Agenda TR3* 3 events...
+Bot:   Preview → confirm
+User:  yes
+Bot:   ✅ 3 reminders set!
+       1. ✅ Peresmian (Sat 17 Mei 12:30)
+       2. ✅ Rapat Evaluasi (Sun 18 Mei 08:00)
+       3. ✅ Workshop (Mon 19 Mei 09:00)
+       Use /note <id> to see original source.
+
+User:  /note 2
+Bot:   📌 *Reminder #2 — source message*
+       ⏰ Sun, 18 Mei 2026 at 08:00
+       🔔 10min before
+       
+       Original:
+       > Rapat Evaluasi progress sprint
+       > dengan tim developer
+
+User:  /reminders
+Bot:   📋 *Your Reminders*
+       #1  Peresmian Operasionalisasi — Sat 17 Mei 12:30
+       #2  Rapat Evaluasi              — Sun 18 Mei 08:00
+       #3  Workshop Digitalisasi       — Mon 19 Mei 09:00
+       🔔 10min before each
+       /cancel <id> | /note <id> for source
+```

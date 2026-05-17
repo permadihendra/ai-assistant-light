@@ -213,7 +213,10 @@ class BrainPlugin(Plugin):
         preview_lines.append(f"Total: {total} item{'s' if total > 1 else ''}")
         preview_lines.append("Reply 'yes' to confirm, 'no' to cancel.")
 
-        # Store in pending state
+        # Store in pending state — attach source_text to each action
+        for item in validated:
+            item["source_text"] = ctx.message_text
+
         pending_state.set(ctx.chat_id, {
             "actions": validated,
             "stage": "confirm",
@@ -300,7 +303,8 @@ class BrainPlugin(Plugin):
 
         text = params.get("text", "")
         time_str = params.get("time", "")
-        alerts = params.get("alerts", [15, 5])
+        alerts = params.get("alerts", [10])
+        source_text = params.get("source_text", "")
 
         if not text or not time_str:
             logger.debug("Missing text or time for remind: text=%s time=%s", text, time_str)
@@ -335,6 +339,7 @@ class BrainPlugin(Plugin):
                 text=text,
                 remind_at=remind_at,
                 alerts=alerts,
+                source_text=source_text,
             )
         return None
 
