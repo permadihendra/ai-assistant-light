@@ -20,22 +20,35 @@
 - [x] All via raw `httpx` — no SDKs
 - [x] Default: Gemini 2.5 Flash (free tier, 1,500 req/day)
 - [x] Provider router with fail-fast validation
+- [x] Dynamic `max_tokens` — scales with message length (no more truncation)
 
 ### System Plugin
-- [x] `/start` — Welcome message
-- [x] `/help` — Full command list
-- [x] `/ping` — Health check
-- [x] `/status` — Bot + user info
+- [x] `/start`, `/help`, `/ping`, `/status`
 
 ### Web Search
 - [x] `/search <query>` — DuckDuckGo search (free, no API key)
-- [x] LLM synthesis (optional, if LLM configured)
+- [x] LLM synthesis (optional)
 
 ### Reminder
-- [x] `/remind <time> <msg>` — Set reminders
-- [x] `/reminders` — List active reminders
+- [x] `/remind <time> <msg>` — Set reminders with time parsing
+- [x] `/reminders` — Clean table format with human-readable dates
 - [x] `/cancel <id>` — Cancel a reminder
-- [x] Time parsing: `10m`, `2h`, `tomorrow 09:00`, `2026-06-01 08:00`
+- [x] Single alert `[10]` — 10 minutes before
+- [x] `/note <id>` — View reminder source (original forwarded message)
+- [x] Clean confirmation: preview → yes/no
+- [x] Stray yes/no → "No pending actions" message
+
+### Notes Plugin
+- [x] Save long messages as notes
+- [x] `/notes` — list all saved notes
+- [x] `/note <id>` — view note or reminder source
+
+### Smart Agenda Parsing
+- [x] Forwarded/pasted agenda → Gemini extracts ALL events
+- [x] Multiple `remind_create` actions in one API call
+- [x] Grouped preview by date
+- [x] Content distillation: clear WHO + WHAT + OBJECT
+- [x] Fallback: acknowledgment when too long
 
 ### Summarizer
 - [x] `/summarize` — Summarize recent messages
@@ -47,15 +60,23 @@
 - [x] Path traversal protection
 - [x] Timeout + output cap
 
-### BrainPlugin (v2)
+### BrainPlugin (v3)
 - [x] Non-command messages → Gemini → classified action → router
-- [x] Structured JSON routing (`search`, `remind_create`, `ping`, `help`, etc.)
-- [x] PC power control: `pc_on`, `pc_off`, `pc_status`
+- [x] `actions[]` array support — multiple actions per API call
+- [x] Validation gates: required params check before preview
+- [x] Auto-cancel pending when new content arrives
+- [x] Separator-only messages (`===`) ignored
+- [x] Raw JSON never leaks — acknowledgment fallback
 
 ### PC Power Control
 - [x] GPIO relay scripts (power on/off via `RPi.GPIO`)
 - [x] `scripts/ping-pc.sh` — ping-based PC status check
 - [x] Brain routes "turn on pc" → `/run relay-poweron-pc.py`
+
+### AI Personality
+- [x] `AI_PERSONALITY` env var
+- [x] Injected into all system prompts
+- [x] Default: friendly, concise, fun, light sarcasm
 
 ### Security
 - [x] `.gitignore` — excludes `.env`, `data/`, `.venv/`, etc.
@@ -72,40 +93,15 @@
 
 ---
 
-## 🚧 Building (on `remind-notes-features` branch)
-
-### Notes Plugin
-- [ ] Save long messages as notes
-- [ ] `/notes` — list all saved notes
-- [ ] `/note <id>` — view specific note
-- [ ] Notes SQLite table + migration
-
-### Smart Long-Message Parsing
-- [ ] Messages >100 chars → auto-detect intent
-- [ ] Gemini extracts: remind? note? both?
-- [ ] Multiple actions from one API call (`actions[]`)
-
-### Multi-Alert Reminders
-- [ ] `alerts: [15, 5]` — fire warnings before the actual time
-- [ ] Scheduler polls for pending alerts
-- [ ] Overdue alert handling
-
-### AI Personality
-- [ ] `AI_PERSONALITY` env var
-- [ ] Injected into all system prompts
-- [ ] Default: friendly, concise, fun, light sarcasm
-
----
-
 ## 🔮 Future Ideas
 
 | Idea | Priority | Notes |
 |---|---|---|
 | Recurring reminders | 🟡 Medium | "every monday 9am" |
 | Note tags/categories | 🟢 Low | `#work`, `#personal` |
+| Async acknowledgment ("processing...") | 🟡 Medium | Two-step reply: ack then results |
 | RSS monitoring | 🟡 Medium | Cron-based feed checker |
 | Weather plugin | 🟢 Low | Free API needed |
-| Multi-language support | 🟢 Low | Already partially works via Gemini |
 | Dashboard web UI | 🔴 Low | Maybe? Not the focus |
 
 ---
@@ -114,7 +110,7 @@
 
 | Issue | Status |
 |---|---|
-| Genimi free tier: 60 req/min limit | Can't bypass — free tier limitation |
+| Gemini free tier: 60 req/min limit | Can't bypass — free tier limitation |
 | Notes are per-chat (no cross-device sync) | By design — SQLite local |
 | No encryption at rest | SQLite file — only as secure as your Pi |
 | Scripts run as bot user | Need `gpio` group access on Pi |
@@ -125,7 +121,7 @@
 
 | Branch | Merged | What |
 |---|---|---|
-| `main` | ✅ | Initial project setup |
+| `main` | ✅ | Current production |
 | `search-features` | ✅ | DuckDuckGo search (free) |
 | `llm-brain` | ✅ | BrainPlugin v1 + Gemini + PC control |
-| `remind-notes-features` | 🔧 In progress | Notes, smart parsing, personality |
+| `remind-notes-features` | ✅ | Notes, agenda parsing, personality, validations |
