@@ -57,8 +57,7 @@ def _parse_time(text: str) -> datetime | None:
             if match.group(1) and match.group(2):
                 h, m = int(match.group(1)), int(match.group(2))
             else:
-                now = datetime.now(WIB)
-                h, m = (now.hour + 1) % 24, 0
+                h, m = 9, 0  # default: 9 AM
             dt = datetime.now(WIB).replace(hour=h, minute=m, second=0, microsecond=0)
             dt += timedelta(days=1)
             return dt.astimezone(timezone.utc)
@@ -72,7 +71,7 @@ def _parse_time(text: str) -> datetime | None:
             if match.group(1) and match.group(2):
                 h, m = int(match.group(1)), int(match.group(2))
             else:
-                h, m = now.hour + 1, 0
+                h, m = max(now.hour + 1, 9), 0  # next hour, at least 9AM
                 if h >= 24:
                     h = 23
             dt = now.replace(hour=h, minute=m, second=0, microsecond=0)
