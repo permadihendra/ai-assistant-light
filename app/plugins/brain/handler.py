@@ -8,14 +8,12 @@ from app.llm.base import LLMMessage
 from app.llm.prompts import BRAIN_SYSTEM_PROMPT
 from app.llm.router import get_provider
 from app.plugins.base import BotContext, Plugin, PluginRegistry
+from app.plugins.brain import state as pending_state
 
 logger = logging.getLogger(__name__)
 
-_LONG_MSG_THRESHOLD = 100  # chars — messages above this trigger smart parsing
-
-# Regex fallback for malformed JSON
+_LONG_MSG_THRESHOLD = 100
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
-_ACTIONS_RE = re.compile(r'"actions"\s*:\s*\[.*?\]', re.DOTALL)
 
 # ── Action → (plugin_name, command_template) mapping ────────────────────
 _ACTION_MAP: dict[str, tuple[str, str | None]] = {
@@ -30,17 +28,18 @@ _ACTION_MAP: dict[str, tuple[str, str | None]] = {
     "pc_status": ("script_runner", "/run ping-pc.sh"),
 }
 
-# Actions handled directly (no command routing needed)
+# Actions that need validation before execution
 _DIRECT_ACTIONS = {"chat", "note_save", "remind_create"}
+
+# Required params per action
+_REQUIRED_PARAMS: dict[str, list[str]] = {
+    "remind_create": ["text", "time"],
+    "note_save": ["text"],
+    "search": ["query"],
+}
 
 
 class BrainPlugin(Plugin):
-    """Handles non-command messages by routing to the right plugin.
-
-    v3: Supports actions[] array — multiple actions from one API call.
-    Long messages (>100 chars) trigger smart parsing for notes + reminders.
-    """
-
     name = "brain"
     commands: list[str] = []
     description = "AI brain — understands natural language and routes to commands"
@@ -68,7 +67,7 @@ class BrainPlugin(Plugin):
             if not actions:
                 return None
 
-            return await self._route_actions(actions)
+            return await self._validate_and_route(ctx, actions)
 
         except Exception as e:
             logger.error("Brain failed: %s", e, exc_info=True)
@@ -82,13 +81,10 @@ class BrainPlugin(Plugin):
         except RuntimeError:
             return None
 
-    # ── JSON parsing with fallbacks ────────────────────────────────────
+    # ── JSON parsing ──────────────────────────────────────────────────
 
     def _parse_actions(self, text: str) -> list[dict[str, Any]] | None:
-        """Parse Gemini's response into a list of action dicts."""
         text = text.strip()
-
-        # Try direct parse
         try:
             data = json.loads(text)
             if isinstance(data, dict):
@@ -99,7 +95,6 @@ class BrainPlugin(Plugin):
         except json.JSONDecodeError:
             pass
 
-        # Try regex for actions array
         match = re.search(r'"actions"\s*:\s*(\[.*?\])', text, re.DOTALL)
         if match:
             try:
@@ -109,7 +104,6 @@ class BrainPlugin(Plugin):
             except json.JSONDecodeError:
                 pass
 
-        # Try regex for single action object
         match = _JSON_RE.search(text)
         if match:
             try:
@@ -122,32 +116,101 @@ class BrainPlugin(Plugin):
             except json.JSONDecodeError:
                 pass
 
-        # Fallback: treat as chat
         return [{"action": "chat", "text": text[:500]}]
 
-    # ── Routing engine ────────────────────────────────────────────────
+    # ── Validation + Routing ─────────────────────────────────────────
 
-    async def _route_actions(self, actions: list[dict[str, Any]]) -> str | None:
-        """Execute each action and collect replies."""
-        replies: list[str] = []
+    async def _validate_and_route(self, ctx: BotContext, actions: list[dict]) -> str | None:
+        """Validate all actions first. If missing params, ask user. Else confirm."""
+        validated = []
+        missing = []
 
         for item in actions:
-            if not isinstance(item, dict):
-                continue
-            action = item.pop("action", None) or item.pop("type", None)
-            if not action:
-                continue
+            action = item.get("action") or item.get("type", "")
+            params = {k: v for k, v in item.items() if k not in ("action", "type")}
 
-            try:
-                reply = await self._route_single(action, item)
-                if reply:
-                    replies.append(reply)
-            except Exception as e:
-                logger.error("Action '%s' failed: %s", action, e)
+            # Chat actions pass through immediately
+            if action == "chat":
+                return params.get("text") or params.get("response") or "🤔"
 
-        if not replies:
-            return None
-        return "\n\n".join(replies)
+            # Check required params
+            required = _REQUIRED_PARAMS.get(action, [])
+            missing_params = [p for p in required if not params.get(p)]
+
+            if missing_params:
+                missing.append((action, missing_params, params))
+            else:
+                validated.append(item)
+
+        # ── Missing params? Ask user ──────────────────────────
+        if missing:
+            return await self._handle_missing_params(ctx, missing)
+
+        # ── All valid → show confirmation ─────────────────────
+        if not validated:
+            return "🤔 Not sure what to do with that."
+
+        # Single action that doesn't need confirmation (no side effects)
+        single = validated[0]
+        s_action = single.get("action", "")
+        if s_action in ("search", "ping", "help", "status", "pc_status"):
+            return await self._route_single(s_action, single)
+
+        # Everything else → show preview + ask confirm
+        preview_lines = ["Here's what I'll do:", ""]
+        for item in validated:
+            a = item.get("action", "")
+            if a == "note_save":
+                t = item.get("text", "")[:60]
+                preview_lines.append(f"📝 Save note: {t}")
+            elif a == "remind_create":
+                t = item.get("text", "")
+                tm = item.get("time", "?")
+                preview_lines.append(f"⏰ Reminder: {t} ({tm})")
+            elif a == "pc_on":
+                preview_lines.append("💻 Turn ON your PC")
+            elif a == "pc_off":
+                preview_lines.append("💻 Turn OFF your PC")
+            else:
+                preview_lines.append(f"• {a}: {item.get('text', '')}")
+
+        preview_lines.extend(["", "Reply 'yes' to confirm, 'no' to cancel."])
+
+        # Store in pending state
+        pending_state.set(ctx.chat_id, {
+            "actions": validated,
+            "stage": "confirm",
+            "original_text": ctx.message_text,
+        })
+
+        return "\n".join(preview_lines)
+
+    # ── Missing params handler ────────────────────────────────────────
+
+    async def _handle_missing_params(
+        self, ctx: BotContext, missing: list[tuple[str, list[str], dict]]
+    ) -> str:
+        """Handle actions with missing parameters by asking the user."""
+        action, missing_params, params = missing[0]
+
+        # Build a sensible question
+        if action == "remind_create":
+            if "time" in missing_params and "text" in missing_params:
+                return Ask.question(ctx, {}, "remind_create")
+            elif "time" in missing_params:
+                return Ask.question(ctx, params, "remind_create_time")
+            elif "text" in missing_params:
+                return Ask.question(ctx, params, "remind_create_text")
+
+        if action == "note_save":
+            return Ask.question(ctx, {}, "note_save")
+
+        if action == "search":
+            return Ask.question(ctx, {}, "search")
+
+        return "I need a bit more info. Can you clarify?"
+
+    # ── Route single action (called from dispatcher for pending confirm) ─
 
     async def _route_single(self, action: str, params: dict[str, Any]) -> str | None:
         """Route a single action to the right handler."""
@@ -155,23 +218,19 @@ class BrainPlugin(Plugin):
         if not ctx:
             return None
 
-        # ── Chat — return directly ──────────────────────────────
         if action == "chat":
-            return params.get("text") or params.get("response") or "🤔"
+            return params.get("text") or "🤔"
 
-        # ── Note save — call NotesPlugin directly ────────────────
         if action == "note_save":
-            text = params.get("text", "") or ctx.message_text
+            text = params.get("text", "") or (ctx.message_text if ctx else "")
             plugin = PluginRegistry.get().get_plugin("notes")
             if plugin:
                 return await plugin.save_note(ctx.chat_id, text)
             return "📝 Note feature not available."
 
-        # ── Remind create — call ReminderPlugin directly ─────────
         if action == "remind_create":
             return await self._handle_remind_create(params)
 
-        # ── Command-based actions — rewrite and route ────────────
         mapping = _ACTION_MAP.get(action)
         if mapping:
             plugin_name, cmd_template = mapping
@@ -197,10 +256,9 @@ class BrainPlugin(Plugin):
         logger.debug("Unknown brain action: %s", action)
         return None
 
-    # ── Remind create — time parsing + multi-alert ──────────────
+    # ── Remind create ────────────────────────────────────────────────
 
     async def _handle_remind_create(self, params: dict[str, Any]) -> str | None:
-        """Create a reminder with smart time parsing and alerts."""
         from app.plugins.reminder.handler import ReminderPlugin, _parse_time
 
         text = params.get("text", "")
@@ -208,25 +266,22 @@ class BrainPlugin(Plugin):
         alerts = params.get("alerts", [15, 5])
 
         if not text or not time_str:
-            return "Need more details — what and when?"
+            return None
 
         ctx = self._original_ctx
         if not ctx:
             return None
 
-        # Try parsing the time
         remind_at = _parse_time(time_str)
         if not remind_at:
-            # Try common natural language patterns
             remind_at = self._parse_natural_time(time_str)
 
         if not remind_at:
-            return f"Hmm, couldn't figure out when '{time_str}' is. Try /remind for manual setup."
+            return None
 
         if remind_at < datetime.now(timezone.utc):
             return "That time's already passed! 🕰️"
 
-        # Ensure alerts is a valid list
         if not isinstance(alerts, list):
             alerts = [15, 5]
 
@@ -239,14 +294,39 @@ class BrainPlugin(Plugin):
                 remind_at=remind_at,
                 alerts=alerts,
             )
-
         return None
 
     def _parse_natural_time(self, text: str) -> datetime | None:
-        """Fallback: parse fuzzy time strings like 'next monday', 'in 2 hours'."""
         from dateutil import parser as dateparser
         try:
             return dateparser.parse(text, default=datetime.now(timezone.utc))
         except (ImportError, ValueError):
             pass
         return None
+
+
+# ── Helper: Ask questions that set pending state ──────────────────────
+
+
+class Ask:
+    """Build questions that set pending state for missing params."""
+
+    @staticmethod
+    def question(ctx: BotContext, existing_params: dict, stage: str) -> str:
+        chat_id = ctx.chat_id
+
+        questions = {
+            "remind_create": "📋 What do you need to be reminded about, and when? (e.g., 'meeting tomorrow 9am')",
+            "remind_create_time": "⏰ When? (e.g., tomorrow 9am, in 2 hours, June 1st 08:00)",
+            "remind_create_text": "📋 Remind you about what?",
+            "note_save": "📝 What should I save as a note?",
+            "search": "🔍 What should I search for?",
+        }
+
+        pending_state.set(chat_id, {
+            "stage": stage,
+            "action": {"action": "remind_create" if stage.startswith("remind_create") else stage, **existing_params},
+            "original_text": ctx.message_text,
+        })
+
+        return questions.get(stage, "Could you clarify?")

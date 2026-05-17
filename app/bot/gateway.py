@@ -1,10 +1,11 @@
 import hmac
+import json
 import logging
 
 from fastapi import APIRouter, Request, Response
 from telegram import Update
 
-from app.bot.dispatcher import dispatch
+from app.bot.dispatcher import dispatch, handle_callback
 from app.bot.middlewares import check_rate_limit
 from app.config import settings
 
@@ -13,20 +14,54 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def _send_telegram_message(chat_id: int, text: str) -> None:
+async def _send_telegram_message(chat_id: int, text: str, keyboard=None) -> None:
     """Send a message via Telegram Bot API using raw httpx."""
     import httpx
 
     url = f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown",
+    }
+    if keyboard:
+        payload["reply_markup"] = json.loads(keyboard) if isinstance(keyboard, str) else keyboard
+
     async with httpx.AsyncClient(timeout=10.0) as client:
-        await client.post(
-            url,
-            json={
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "Markdown",
-            },
-        )
+        await client.post(url, json=payload)
+
+
+async def _edit_message_text(chat_id: int, message_id: int, text: str, keyboard=None) -> None:
+    """Edit a message's text and inline keyboard."""
+    import httpx
+
+    url = f"https://api.telegram.org/bot{settings.telegram_token}/editMessageText"
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text,
+        "parse_mode": "Markdown",
+    }
+    if keyboard:
+        payload["reply_markup"] = json.loads(keyboard) if isinstance(keyboard, str) else keyboard
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        await client.post(url, json=payload)
+
+
+async def _send_with_keyboard(chat_id: int, text: str, keyboard) -> None:
+    """Send a message with an inline keyboard."""
+    import httpx
+
+    url = f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown",
+        "reply_markup": keyboard if isinstance(keyboard, dict) else json.loads(keyboard),
+    }
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        await client.post(url, json=payload)
 
 
 @router.post("/webhook")
@@ -34,21 +69,16 @@ async def webhook(request: Request) -> Response:
     """Telegram webhook receiver."""
     body = await request.body()
 
-    # Verify webhook secret if configured
     if settings.telegram_webhook_secret:
         received_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
         if not received_token:
             logger.warning("Webhook request missing secret token")
             return Response(status_code=401)
-        # Constant-time comparison to prevent timing attacks
         if not hmac.compare_digest(received_token, settings.telegram_webhook_secret):
             logger.warning("Webhook secret token mismatch")
             return Response(status_code=403)
 
-    # Parse update
     try:
-        import json
-
         data = json.loads(body)
         update = Update.de_json(data, None)
     except Exception as e:
@@ -58,6 +88,26 @@ async def webhook(request: Request) -> Response:
     if not update:
         return Response(status_code=200)
 
+    # ── Handle callback queries (inline keyboard taps) ─────────
+    if update.callback_query:
+        cq = update.callback_query
+        logger.info("Callback query %s from %s: %s", cq.id, cq.from_user.id, cq.data)
+
+        reply, new_keyboard = await handle_callback(cq)
+        if reply:
+            if new_keyboard is not None:
+                # Update the message with new text + keyboard
+                await _edit_message_text(
+                    cq.message.chat_id, cq.message.message_id, reply, new_keyboard
+                )
+            else:
+                # Final reply — remove keyboard, send result
+                await _edit_message_text(
+                    cq.message.chat_id, cq.message.message_id, reply
+                )
+        return Response(status_code=200)
+
+    # ── Handle text messages ────────────────────────────────────
     message = update.message or update.edited_message
     if not message or not message.text:
         logger.debug("Received non-text update: %s", update.update_id)
@@ -70,16 +120,13 @@ async def webhook(request: Request) -> Response:
         message.text[:100],
     )
 
-    # Rate limiting
     if not check_rate_limit(message.chat_id):
         await _send_telegram_message(
             message.chat_id, "⏱ Slow down! You're sending too many requests."
         )
         return Response(status_code=200)
 
-    # Dispatch to plugins
     reply = await dispatch(update)
-
     if reply:
         try:
             await _send_telegram_message(message.chat_id, reply)
@@ -93,4 +140,3 @@ async def webhook(request: Request) -> Response:
 @router.get("/health")
 async def health():
     return {"status": "ok", "provider": settings.llm_provider}
-    # Never expose key values here

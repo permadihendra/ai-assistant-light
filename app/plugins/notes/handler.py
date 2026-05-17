@@ -28,12 +28,19 @@ class NotesPlugin(Plugin):
             return "📝 Can't save an empty note."
 
         db = await get_db()
-        await db.execute(
+        cursor = await db.execute(
             "INSERT INTO notes (chat_id, text) VALUES (?, ?)",
             (chat_id, note_text.strip()),
         )
+        note_id = cursor.lastrowid
         await db.commit()
-        return "📝 Note saved! Use `/notes` to view it."
+
+        preview = note_text[:60] + "..." if len(note_text) > 60 else note_text
+        return (
+            f"📝 *Note #{note_id} saved* ✅\n"
+            f"```\n{preview}\n```\n"
+            f"Use `/notes` to see all."
+        )
 
     async def _list_notes(self, ctx: BotContext) -> str:
         db = await get_db()

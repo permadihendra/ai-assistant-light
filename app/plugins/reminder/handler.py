@@ -108,19 +108,27 @@ class ReminderPlugin(Plugin):
         if row and row[0] >= MAX_ACTIVE_PER_CHAT:
             return f"⚠️ Maximum {MAX_ACTIVE_PER_CHAT} active reminders per chat."
 
-        await db.execute(
+        cursor = await db.execute(
             "INSERT INTO reminders (chat_id, user_id, text, remind_at, alerts) VALUES (?, ?, ?, ?, ?)",
             (ctx.chat_id, ctx.user_id, message, remind_at.isoformat(), "[15, 5]"),
         )
+        reminder_id = cursor.lastrowid
         await db.commit()
 
-        alert_str = " | 🔔 Alerts: 15min & 5min before" if "[15, 5]" else ""
-        return f"✅ Reminder set for <t:{int(remind_at.timestamp())}:R>: {message}{alert_str}"
+        local_time = remind_at.astimezone(WIB)
+        time_str = local_time.strftime("%A, %d %b %Y at %H:%M")
+
+        return (
+            f"✅ *Reminder #{reminder_id} set!*\n"
+            f"📋 {message}\n"
+            f"⏰ {time_str}\n"
+            f"🔔 15min + 5min before"
+        )
 
     async def create_reminder(
         self, chat_id: int, user_id: int, text: str, remind_at: datetime, alerts: list[int] | None = None
     ) -> str:
-        """Direct API for BrainPlugin — skips command parsing."""
+        """Direct API for BrainPlugin — skips command parsing. Returns reminder ID."""
         import json
 
         if remind_at < datetime.now(timezone.utc):
@@ -136,18 +144,26 @@ class ReminderPlugin(Plugin):
             return f"⚠️ Maximum {MAX_ACTIVE_PER_CHAT} active reminders per chat."
 
         alerts_json = json.dumps(alerts or [15, 5])
-        await db.execute(
+        cursor = await db.execute(
             "INSERT INTO reminders (chat_id, user_id, text, remind_at, alerts) VALUES (?, ?, ?, ?, ?)",
             (chat_id, user_id, text, remind_at.isoformat(), alerts_json),
         )
+        reminder_id = cursor.lastrowid
         await db.commit()
 
-        alert_text = ""
-        if alerts:
-            mins = ", ".join(f"{m}min" for m in alerts)
-            alert_text = f" | 🔔 Heads up {mins} before!"
+        # Format time nicely
+        local_time = remind_at.astimezone(WIB)
+        time_str = local_time.strftime("%A, %d %b %Y at %H:%M")
 
-        return f"✅ Reminder set for <t:{int(remind_at.timestamp())}:R>: {text}{alert_text}"
+        alert_str = ""
+        if alerts:
+            alert_str = "\n🔔 " + " + ".join(f"{m}min before" for m in alerts)
+
+        return (
+            f"✅ *Reminder #{reminder_id} set!*\n"
+            f"📋 {text}\n"
+            f"⏰ {time_str}{alert_str}"
+        )
 
     async def _list_reminders(self, ctx: BotContext) -> str:
         db = await get_db()

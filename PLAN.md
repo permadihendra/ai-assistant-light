@@ -601,3 +601,178 @@ Rp50k/month ≈ ~$3 USD ≈ **hundreds of thousands** of Gemini calls.
 | **Total** | | **~500 calls** |
 
 **Cost:** ~$0.05/month. You're safe. ✅
+
+---
+
+# Validation + Confirmation + Time Picker
+
+## Problem
+
+Gemini sometimes returns incomplete data:
+```json
+{"action": "remind_create", "text": "meeting"}
+// Missing time! Bad data hits SQLite.
+```
+
+## Solution: 3 Gates Before DB Write
+
+```
+Gemini actions[] ──► Gate 1: Required params? ──► Missing? Ask user
+                           │                           │
+                      Has all? ←───────────────────────┘
+                           │
+                      ┌────┴────┐
+                      │         │
+                   Gate 2     Gate 3
+                   Confirm    Ambiguous time?
+                   with user    → Picker
+                      │         │
+                      └────┬────┘
+                           │
+                      Write to DB
+                           │
+                   "✅ Done! Here's what..."
+```
+
+### Gate 1 — Required Params Validation
+
+| Action | Required | If Missing | Bot Says |
+|---|---|---|---|
+| `remind_create` | `text` + `time` | Missing time | "⏰ When? (today, tomorrow 9am, or June 1st)" |
+| `remind_create` | `text` + `time` | Missing text | "📋 Remind you about what?" |
+| `note_save` | `text` | Empty | "📝 What should I save?" |
+| `search` | `query` | Empty | "🔍 What should I search for?" |
+
+### Gate 2 — Confirmation Before Write
+
+After all params are valid, show preview and ask:
+
+```
+Bot:  Here's what I'll set:
+      📋 Dentist appointment
+      ⏰ Tomorrow, 09:00
+      🔔 15min + 5min before
+      
+      Reply 'yes' to confirm, or tell me what to change.
+
+You:  yes
+Bot:  ✅ Reminder #42 set!
+
+--- or ---
+
+You:  no, it's at 10am
+Bot:  Got it! Let me fix that...
+      (→ re-runs Gemini with correction context)
+```
+
+### Gate 3 — Inline Keyboard Time Picker
+
+Telegram has **no native date/time picker**. But we build one with inline keyboards:
+
+```
+Gemini returns: time="tomorrow" (no hour specified)
+Bot:  "⏰ What time tomorrow?"
+      
+      [🌅 6-12] [☀️ 12-18] [🌙 18-00]
+      
+      You tap [🌅 6-12]
+Bot:  "Which hour?"
+      [6] [7] [8] [9] [10] [11] [12]
+      
+      You tap [9]
+Bot:  "Minutes?"
+      [00] [15] [30] [45]
+      
+      You tap [00]
+Bot:  ✅ 9:00 tomorrow. Sound good?
+      [✅ Yes] [✏️ Edit]
+```
+
+**Fallback:** If user prefers typing, they can just send "9am" instead of tapping buttons.
+
+## Pending State (In-Memory)
+
+```python
+# app/plugins/brain/state.py
+
+_pending: dict[int, dict] = {}
+# {chat_id: {"actions": [...], "stage": "confirm" | "ask_time" | "ask_text", ...}}
+
+# Key: chat_id, Value: current conversation state
+# Lost on restart — user just re-sends their message. Safe.
+```
+
+| Stage | What Bot Is Waiting For |
+|---|---|
+| `ask_time` | User to specify a time |
+| `ask_text` | User to specify reminder/note text |
+| `confirm` | User to reply "yes" or "no" |
+| `pick_hour` | User to tap an hour on the picker |
+| `pick_minute` | User to tap minutes on the picker |
+
+## Picker Keyboard Design
+
+```python
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+def build_time_picker():
+    """3-step picker: period → hour → minutes"""
+    kb = [
+        [InlineKeyboardButton("🌅 06-12", callback_data="period_morning"),
+         InlineKeyboardButton("☀️ 12-18", callback_data="period_afternoon"),
+         InlineKeyboardButton("🌙 18-00", callback_data="period_evening")],
+    ]
+    return InlineKeyboardMarkup(kb)
+```
+
+## Multi-Action Summary
+
+When brain executes multiple actions, show a clean summary:
+
+```
+Bot:  ✅ Done 2 things:
+      
+      📝 Note #5 saved ✅
+        └─ wifi: admin123
+      
+      ✅ Reminder #42 set!
+        📋 Meeting with the team
+        ⏰ Tomorrow, 09:00
+        🔔 15min + 5min before
+```
+
+## Partial Success
+
+If one action fails and another succeeds:
+```
+Bot:  ⚠️ Partial success:
+      
+      ✅ Note #5 saved
+      ❌ Reminder failed — missing time. Try again?
+```
+
+## Files to Create/Change
+
+| File | What |
+|---|---|
+| `app/plugins/brain/state.py` | **Create** — Pending state manager |
+| `app/plugins/brain/picker.py` | **Create** — Inline keyboard time picker |
+| `app/plugins/brain/handler.py` | **Update** — Validation gates + pending flow |
+| `app/plugins/notes/handler.py` | **Update** — Return note_id in feedback |
+| `app/plugins/reminder/handler.py` | **Update** — Return reminder_id in feedback |
+| `app/bot/dispatcher.py` | **Update** — Check pending state before brain |
+| `app/bot/gateway.py` | **Update** — Handle callback queries |
+| `INFORMATION.md` | Update status |
+| `PLAN.md` | This plan |
+
+## Edge Cases
+
+| Scenario | What Happens |
+|---|---|
+| Time is "tomorrow" without hour | Picker triggers for hour selection |
+| User says "no" at confirm | Pending cleared: "Alright, cancelled! Send again." |
+| User says "change time to 10am" | Re-runs Gemini with correction context |
+| Bot restarts mid-flow | Pending lost — user re-sends. No data corruption. |
+| Multiple actions, one fails | Partial success with ❌ indicator |
+| User ignores bot's question | Next message starts fresh (clears old pending) |
+| Picker callback arrives late | Validate pending still exists; ignore if stale |
