@@ -153,22 +153,32 @@ class ReminderPlugin(Plugin):
 
         sep = "─" * 35
         blocks = []
+        kb_rows = []
+
         for r in rows:
             dt = datetime.fromisoformat(r["remind_at"])
             local = dt.astimezone(WIB)
             time_str = local.strftime("%a, %d %b %Y at %H:%M")
             preview = r["text"]
+            rid = r["id"]
+
             blocks.append(
-                f"#{r['id']} {preview}\n"
+                f"#{rid} {preview}\n"
                 f"   ⏰ {time_str}\n"
-                f"   🔔 10min before  ─  /note {r['id']}  ─  /cancel {r['id']}"
+                f"   🔔 10min before"
             )
+            kb_rows.append([
+                {"text": f"❌ #{rid}", "callback_data": f"rem_cancel_{rid}"},
+                {"text": f"📎 #{rid}", "callback_data": f"rem_note_{rid}"},
+            ])
 
         header = "📋 *Your Reminders*"
         body = f"\n{sep}\n".join(blocks)
         footer = "\n🔔 Each alerts 10min before"
 
-        return f"{header}\n{body}{footer}"
+        text = f"{header}\n{body}{footer}"
+        keyboard = {"inline_keyboard": kb_rows}
+        return {"text": text, "keyboard": keyboard}
 
     # ── CANCEL ────────────────────────────────────────────────────
 
@@ -177,15 +187,21 @@ class ReminderPlugin(Plugin):
             rid = int(ctx.message_text[len("/cancel "):].strip())
         except (ValueError, IndexError):
             return "❓ Usage: `/cancel <id>`"
+        return await self.cancel_by_id(ctx.chat_id, rid)
 
+    async def cancel_by_id(self, chat_id: int, reminder_id: int) -> str:
+        """Cancel a reminder by ID. Used by /cancel command and inline callbacks."""
         db = await get_db()
-        c = await db.execute("SELECT id FROM reminders WHERE id=? AND chat_id=? AND fired=0", (rid, ctx.chat_id))
+        c = await db.execute(
+            "SELECT id FROM reminders WHERE id=? AND chat_id=? AND fired=0",
+            (reminder_id, chat_id),
+        )
         if not await c.fetchone():
             return "❌ Reminder not found or already fired."
 
-        await db.execute("DELETE FROM reminders WHERE id=?", (rid,))
+        await db.execute("DELETE FROM reminders WHERE id=?", (reminder_id,))
         await db.commit()
-        return f"✅ Cancelled reminder `{rid}`."
+        return f"✅ Cancelled reminder `{reminder_id}`."
 
     # ── SOURCE (called by NotesPlugin or directly) ────────────────
 

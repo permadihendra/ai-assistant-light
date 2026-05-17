@@ -278,15 +278,30 @@ async def _rebrain_with_correction(chat_id: int, original: str, correction: str)
 
 
 async def handle_callback(cq) -> tuple[str | None, dict | None]:
-    """Handle inline keyboard callback from the time picker.
-
-    Returns: (reply_text, new_keyboard_or_None)
-    - If None, None: no changes needed
-    - If reply_text, None: final answer, remove keyboard
-    - If reply_text, keyboard: update message with new text + keyboard
-    """
+    """Handle inline keyboard callback from reminders or brain picker."""
     chat_id = cq.message.chat_id
     data = cq.data
+
+    # ── Reminder cancel callback ─────────────────────────────
+    if data.startswith("rem_cancel_"):
+        rid = int(data.split("_")[-1])
+        from app.plugins.reminder.handler import ReminderPlugin
+        plugin = PluginRegistry.get().get_plugin("reminder")
+        if isinstance(plugin, ReminderPlugin):
+            result = await plugin.cancel_by_id(chat_id, rid)
+            return (result, None)
+        return ("⚠️ Could not cancel.", None)
+
+    # ── Reminder note callback ────────────────────────────────
+    if data.startswith("rem_note_"):
+        rid = int(data.split("_")[-1])
+        from app.plugins.reminder.handler import ReminderPlugin
+        plugin = PluginRegistry.get().get_plugin("reminder")
+        if isinstance(plugin, ReminderPlugin):
+            result = await plugin.get_source(chat_id, rid)
+            return (result or "❌ Reminder not found.", None)
+        return ("⚠️ Could not fetch note.", None)
+
     state = pending_state.get(chat_id)
 
     if not state or not is_picker_callback(data):

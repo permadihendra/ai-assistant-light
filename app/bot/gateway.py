@@ -129,8 +129,13 @@ async def webhook(request: Request) -> Response:
     reply = await dispatch(update)
     if reply:
         try:
-            await _send_telegram_message(message.chat_id, reply)
-            logger.info("Replied to %s: %.200s", message.chat_id, reply)
+            if isinstance(reply, dict):
+                text = reply.get("text", "")
+                keyboard = reply.get("keyboard")
+                await _send_with_keyboard(message.chat_id, text, keyboard)
+            else:
+                await _send_telegram_message(message.chat_id, reply)
+            logger.info("Replied to %s: %.200s", message.chat_id, reply.get("text", reply) if isinstance(reply, dict) else reply)
         except Exception as e:
             logger.error("Failed to send Telegram message: %s", e)
 
