@@ -147,7 +147,12 @@ async def _handle_pending_reply(chat_id: int, text: str, state: dict) -> str | N
     if stage == "ask_time":
         from app.plugins.reminder.handler import _parse_time
 
-        # Check if user provided a parseable time
+        # If reply is a full sentence (not just a time), re-route through brain
+        if len(text) > 15:
+            pending_state.clear(chat_id)
+            return await _rebrain_with_correction(chat_id, state.get("original_text", ""), text)
+
+        # Simple time string — try to parse directly
         parsed = _parse_time(text.strip())
         if parsed:
             pending_state.clear(chat_id)
@@ -155,9 +160,8 @@ async def _handle_pending_reply(chat_id: int, text: str, state: dict) -> str | N
             action["time"] = text.strip()
             return await _process_single_action(chat_id, action)
         else:
-            # Still unclear — ask again
             pending_state.set(chat_id, {**state, "stage": "ask_time"})
-            return "⏰ Masih belum jelas. Reply dengan format seperti `20/05/2026 09:00` atau `besok 09:00`"
+            return "⏰ Masih belum jelas. Reply dengan format `20/05/2026 09:00` atau `besok 09:00`"
 
     # ── Asking for text ──────────────────────────────────────
     if stage == "ask_text":

@@ -27,7 +27,7 @@ PATTERNS = [
     (r"^now$", "now"),
     (r"^sekarang$", "now"),
     # ── Tomorrow / Besok / Lusa ──
-    (r"^tomorrow\s+(\d{1,2}):(\d{2})$", "tomorrow"),
+    (r"^tomorrow(?:\s+(\d{1,2}):(\d{2}))?$", "tomorrow"),
     (r"^besok(?:\s+(\d{1,2})[:\.]?(\d{2}))?$", "tomorrow"),
     (r"^lusa(?:\s+(\d{1,2})[:\.]?(\d{2}))?$", "day_after"),
     # ── Day names ──
@@ -54,7 +54,11 @@ def _parse_time(text: str) -> datetime | None:
         elif kind == "hours":
             return now + timedelta(hours=int(match.group(1)))
         elif kind == "tomorrow":
-            h, m = int(match.group(1)), int(match.group(2))
+            if match.group(1) and match.group(2):
+                h, m = int(match.group(1)), int(match.group(2))
+            else:
+                now = datetime.now(WIB)
+                h, m = (now.hour + 1) % 24, 0
             dt = datetime.now(WIB).replace(hour=h, minute=m, second=0, microsecond=0)
             dt += timedelta(days=1)
             return dt.astimezone(timezone.utc)
