@@ -60,19 +60,21 @@ class BrainPlugin(Plugin):
                     LLMMessage(role="system", content=BRAIN_SYSTEM_PROMPT),
                     LLMMessage(role="user", content=ctx.message_text),
                 ],
-                max_tokens=512,
-                timeout=15.0,
+                max_tokens=1024,
+                timeout=20.0,
             )
 
             actions = self._parse_actions(response.text)
             if not actions:
-                return None
+                # Never leak raw JSON — say something useful instead
+                return _acknowledge_long(ctx.message_text)
 
             return await self._validate_and_route(ctx, actions)
 
         except Exception as e:
             logger.error("Brain failed: %s", e, exc_info=True)
-            return None
+            # Acknowledge so user knows message wasn't lost
+            return _acknowledge_long(ctx.message_text)
 
     # ── Provider ──────────────────────────────────────────────────────
 
@@ -363,3 +365,14 @@ class Ask:
         })
 
         return questions.get(stage, "Could you clarify?")
+
+
+def _acknowledge_long(text: str) -> str:
+    """Fallback reply when Gemini can't process — never leak raw JSON."""
+    words = len(text.split())
+    if words > 30:
+        return (
+            "📨 Got your message! It's a bit long so I'm working through it.\n"
+            "Try breaking it into smaller parts if I don't respond correctly."
+        )
+    return "🤔 I received your message but couldn't process it. Try `/help` to see my commands."
