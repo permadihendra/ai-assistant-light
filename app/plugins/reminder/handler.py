@@ -109,12 +109,45 @@ class ReminderPlugin(Plugin):
             return f"⚠️ Maximum {MAX_ACTIVE_PER_CHAT} active reminders per chat."
 
         await db.execute(
-            "INSERT INTO reminders (chat_id, user_id, text, remind_at) VALUES (?, ?, ?, ?)",
-            (ctx.chat_id, ctx.user_id, message, remind_at.isoformat()),
+            "INSERT INTO reminders (chat_id, user_id, text, remind_at, alerts) VALUES (?, ?, ?, ?, ?)",
+            (ctx.chat_id, ctx.user_id, message, remind_at.isoformat(), "[15, 5]"),
         )
         await db.commit()
 
-        return f"✅ Reminder set for <t:{int(remind_at.timestamp())}:R>: {message}"
+        alert_str = " | 🔔 Alerts: 15min & 5min before" if "[15, 5]" else ""
+        return f"✅ Reminder set for <t:{int(remind_at.timestamp())}:R>: {message}{alert_str}"
+
+    async def create_reminder(
+        self, chat_id: int, user_id: int, text: str, remind_at: datetime, alerts: list[int] | None = None
+    ) -> str:
+        """Direct API for BrainPlugin — skips command parsing."""
+        import json
+
+        if remind_at < datetime.now(timezone.utc):
+            return "❌ Time must be in the future."
+
+        db = await get_db()
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM reminders WHERE chat_id = ? AND fired = 0",
+            (chat_id,),
+        )
+        row = await cursor.fetchone()
+        if row and row[0] >= MAX_ACTIVE_PER_CHAT:
+            return f"⚠️ Maximum {MAX_ACTIVE_PER_CHAT} active reminders per chat."
+
+        alerts_json = json.dumps(alerts or [15, 5])
+        await db.execute(
+            "INSERT INTO reminders (chat_id, user_id, text, remind_at, alerts) VALUES (?, ?, ?, ?, ?)",
+            (chat_id, user_id, text, remind_at.isoformat(), alerts_json),
+        )
+        await db.commit()
+
+        alert_text = ""
+        if alerts:
+            mins = ", ".join(f"{m}min" for m in alerts)
+            alert_text = f" | 🔔 Heads up {mins} before!"
+
+        return f"✅ Reminder set for <t:{int(remind_at.timestamp())}:R>: {text}{alert_text}"
 
     async def _list_reminders(self, ctx: BotContext) -> str:
         db = await get_db()

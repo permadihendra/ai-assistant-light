@@ -410,3 +410,194 @@ sudo usermod -a -G gpio pi
 | `.env` | **Update** — Add `PC_IP_ADDRESS=192.168.1.100` |
 | `.env.example` | **Update** — Add PC_IP_ADDRESS placeholder |
 | `README.md` | **Update** — Document PC power control
+
+---
+
+# Remind + Notes + Personality (remind-notes-features branch)
+
+## Goal
+
+Make every API call count. One Gemini call = maximum useful work:
+- Long messages → auto-detect: remind? note? both?
+- Notes plugin — save reference info
+- Reminders — smart multi-alert (15min + 5min before)
+- AI Personality — configurable via `.env`
+
+## Core Principle: One Call To Rule Them All 🏆
+
+```
+Before: classify → ask user → user replies → classify again → act = 2-3 API calls
+After:  classify + extract + act = 1 API call
+```
+
+Gemini returns an `actions[]` array — multiple actions in one response:
+```json
+{
+  "actions": [
+    {"action": "note", "text": "wifi password: admin123"},
+    {"action": "remind", "time": "tomorrow 10:00", "text": "dentist", "alerts": [15, 5]}
+  ]
+}
+```
+
+Brain iterates through the array and executes each action. **1 call, N actions.**
+
+## Features
+
+### 1. Smart Long-Message Handling
+
+| Message Type | Before | After |
+|---|---|---|
+| "remind me tomorrow 9am meeting" | Brain chats generically | ✅ Sets reminder + 2 alerts |
+| "my wifi is xyz" | Brain chats generically | ✅ Saves as note |
+| "dentist tomorrow + my pin is 1234" | Confused | ✅ Reminder + note in 1 call |
+| "hello!" | Chats | ✅ Chats (no change) |
+
+Threshold: If message length > 100 chars OR has multiple sentences → triggers smart parsing.
+
+### 2. Notes Plugin 📝
+
+| Command | Description |
+|---|---|
+| `/notes` | List all saved notes |
+| `/note <id>` | View a specific note |
+| Brain `:note` route | Save any message as note |
+
+**Storage:** New `notes` table in SQLite:
+```sql
+CREATE TABLE notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    tags TEXT DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### 3. Multi-Alert Reminders ⏰
+
+Current: single `remind_at` datetime.
+New: `alerts` column stores minutes-before as JSON array.
+
+```
+reminder: "dentist tomorrow 10am"
+  → remind_at = 2026-05-18 10:00
+  → alerts = [15, 5]
+  → scheduler fires at 09:45 (15min before) + 09:55 (5min before)
+  → Final fire at 10:00
+```
+
+**Scheduler change:**
+- Fires when `remind_at - alert_minutes <= NOW` AND `alert_fired < total_alerts`
+- Track fired alerts with an integer counter column
+
+### 4. AI Personality 🎭
+
+New `.env` var:
+```env
+AI_PERSONALITY=friendly, clear, short, fun, light sarcasm
+```
+
+Injected into ALL system prompts:
+```python
+PERSONALITY = settings.ai_personality or "friendly, clear, concise, fun"
+
+SYSTEM_PROMPT = f"""...
+Personality: {PERSONALITY}
+..."""
+```
+
+**Default:** "Be friendly, clear, and concise. Keep responses short. Use light humor and emojis. A little sarcasm is fine with friends."
+
+## Architecture Changes
+
+### BrainPlugin.handle() — New Flow
+
+```
+1. User sends message
+2. If short (<100 chars, 1 sentence):
+     → Classify as usual (search, remind, chat, etc.)
+3. If long (>=100 chars OR multiple sentences):
+     → Call Gemini with SMART prompt
+     → Expect actions[] array response
+     → Iterate actions:
+       - remind_create → ReminderPlugin
+       - note_save → NotesPlugin
+       - chat → respond directly
+4. Reply with summary of what was done
+```
+
+### BrainPlugin — actions[] Routing
+
+```python
+action_map = {
+    "note_save": ("notes", None),  # special: save ctx.message_text
+    "remind_create": ("reminder", "/remind {time} {text}"),
+    "chat": None,  # returned directly
+    ...existing actions...
+}
+
+async def _route_actions(self, actions: list[dict]) -> list[str]:
+    replies = []
+    for item in actions:
+        action = item.pop("action")
+        reply = await self._route_single(action, item)
+        if reply:
+            replies.append(reply)
+    return "\n\n".join(replies) if replies else None
+```
+
+## Gemini Prompt — Smart Extraction
+
+```
+You are the AI brain. Analyze the user's message and return structured actions.
+
+If message is short/chatty → use "chat" action.
+If message contains time-based info → use "remind_create" action.
+If message contains reference/save-worthy info → use "note_save" action.
+If message has BOTH → return multiple actions in the actions[] array.
+
+Personality: {PERSONALITY}
+
+Respond ONLY with valid JSON:
+{"actions": [{"action": "...", ...}]}
+
+Examples:
+- "hello" → {"actions": [{"action": "chat", "text": "Hey! 👋"}]}
+- "meeting tomorrow 9am" → {"actions": [{"action": "remind_create", "time": "tomorrow 09:00", "text": "meeting", "alerts": [15, 5]}]}
+- "wifi is admin123" → {"actions": [{"action": "note_save", "text": "wifi password: admin123"}]}
+- "dentist tomorrow 10am and my pin is 1234" → {"actions": [{"action": "remind_create", "time": "tomorrow 10:00", "text": "dentist appointment", "alerts": [15, 5]}, {"action": "note_save", "text": "PIN code: 1234"}]}
+```
+
+## Files to Create/Change
+
+| File | What |
+|---|---|
+| `app/plugins/notes/__init__.py` | **Create** |
+| `app/plugins/notes/handler.py` | **Create** — NotesPlugin: save, list, view |
+| `app/plugins/brain/handler.py` | **Update** — actions[] routing, long-msg detection |
+| `app/plugins/reminder/handler.py` | **Update** — alerts column, multi-fire scheduler |
+| `app/scheduler/runner.py` | **Update** — Fire alerts before remind_at |
+| `app/llm/prompts.py` | **Update** — Personality template + smart prompt |
+| `app/config.py` | **Update** — Add `ai_personality` field |
+| `migrations/003_notes.sql` | **Create** — notes table |
+| `migrations/004_alerts.sql` | **Create** — alerts column on reminders |
+| `.env` | **Update** — Add AI_PERSONALITY |
+| `.env.example` | **Update** — Add AI_PERSONALITY |
+| `PLAN.md` | This plan |
+| `INFORMATION.md` | **Create** — Feature status tracker |
+
+## API Budget Safety 🛡️
+
+Rp50k/month ≈ ~$3 USD ≈ **hundreds of thousands** of Gemini calls.
+
+| Feature | Calls per use | Monthly calls (est.) |
+|---|---|---|
+| Casual chat | 1 | ~300 |
+| Smart parsing (notes+remind) | 1 | ~50 |
+| Search | 1-2 | ~100 |
+| Summarizer | 1 | ~30 |
+| PC control | 1 | ~20 |
+| **Total** | | **~500 calls** |
+
+**Cost:** ~$0.05/month. You're safe. ✅

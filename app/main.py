@@ -9,6 +9,7 @@ from app.database import init_db
 from app.llm.router import get_provider
 from app.plugins.base import PluginRegistry
 from app.plugins.brain.handler import BrainPlugin
+from app.plugins.notes.handler import NotesPlugin
 from app.plugins.reminder.handler import ReminderPlugin
 from app.plugins.script_runner.handler import ScriptRunnerPlugin
 from app.plugins.summarizer.handler import SummarizerPlugin
@@ -40,6 +41,7 @@ async def lifespan(app: FastAPI):
         SystemPlugin(),
         WebSearchPlugin(),
         ReminderPlugin(),
+        NotesPlugin(),
         SummarizerPlugin(),
         ScriptRunnerPlugin(),
     ]

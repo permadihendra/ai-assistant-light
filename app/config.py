@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     # ── Database ──────────────────────────────────────────
     db_path: str = "data/assistant.db"
 
+    # ── AI Personality ──────────────────────────────────────
+    # Injected into all LLM prompts — tone, style, humor
+    ai_personality: str = ""
+
     # ── Summarizer ────────────────────────────────────────
     summarize_every_n_messages: int = 50
     summarize_max_chars: int = 8000
