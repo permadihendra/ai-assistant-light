@@ -1,0 +1,18 @@
+[Unit]
+Description=ai-assistant-light
+After=network.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/ai-assistant-light
+EnvironmentFile=/home/pi/ai-assistant-light/.env
+ExecStart=/home/pi/ai-assistant-light/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 --port 8000 --workers 1 --no-access-log
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+MemoryMax=512M
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

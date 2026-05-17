@@ -1,0 +1,52 @@
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+
+@dataclass
+class BotContext:
+    chat_id: int
+    user_id: int
+    username: str | None
+    message_text: str
+    is_group: bool
+    raw_update: object  # python-telegram-bot Update object
+
+
+class Plugin(ABC):
+    name: str  # unique snake_case identifier
+    commands: list[str]  # telegram slash commands owned by this plugin
+    description: str  # shown in /help output
+
+    @abstractmethod
+    async def handle(self, ctx: BotContext) -> str | None:
+        """Return reply string or None to stay silent."""
+        ...
+
+    async def on_load(self) -> None:
+        """Called once at startup. Set up DB tables, schedules, etc."""
+
+    async def on_unload(self) -> None:
+        """Called at shutdown."""
+
+
+class PluginRegistry:
+    _instance: "PluginRegistry | None" = None
+    _plugins: dict[str, "Plugin"] = {}
+
+    @classmethod
+    def get(cls) -> "PluginRegistry":
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    def register(self, plugin: "Plugin") -> None:
+        self._plugins[plugin.name] = plugin
+
+    def resolve(self, command: str) -> "Plugin | None":
+        for p in self._plugins.values():
+            if command in p.commands:
+                return p
+        return None
+
+    def all(self) -> list["Plugin"]:
+        return list(self._plugins.values())
