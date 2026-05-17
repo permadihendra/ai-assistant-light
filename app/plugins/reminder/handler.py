@@ -11,18 +11,30 @@ logger = logging.getLogger(__name__)
 WIB = timezone(timedelta(hours=7))
 MAX_ACTIVE_PER_CHAT = 20
 
-# Regex patterns for time parsing
+# Regex patterns for time parsing — English + Indonesian
 PATTERNS = [
+    # ── Seconds / Minutes / Hours ──
     (r"^(\d+)s$", "seconds"),
     (r"^(\d+)m$", "minutes"),
     (r"^(\d+)h$", "hours"),
-    (r"^tomorrow\s+(\d{1,2}):(\d{2})$", "tomorrow"),
-    (r"^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})$", "date"),
+    (r"^(in|dalam|nanti)\s+(\d+)\s*(s|seconds?|detik)$", "in_seconds"),
+    (r"^(in|dalam|nanti)\s+(\d+)\s*(m|minutes?|menit)$", "in_minutes"),
+    (r"^(in|dalam|nanti)\s+(\d+)\s*(h|hours?|jam)$", "in_hours"),
+    (r"^(\d+)\s*(jam|menit|detik)\s*(lagi)?$", "in_dur_id"),
+    # ── Today / Now ──
     (r"^today(?:\s+(\d{1,2}):(\d{2}))?$", "today"),
     (r"^(?:hari\s+)?ini(?:\s+(\d{1,2})[:\.]?(\d{2}))?$", "today"),
     (r"^now$", "now"),
+    (r"^sekarang$", "now"),
+    # ── Tomorrow / Besok / Lusa ──
+    (r"^tomorrow\s+(\d{1,2}):(\d{2})$", "tomorrow"),
     (r"^besok(?:\s+(\d{1,2})[:\.]?(\d{2}))?$", "tomorrow"),
     (r"^lusa(?:\s+(\d{1,2})[:\.]?(\d{2}))?$", "day_after"),
+    # ── Day names ──
+    (r"^(next\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(\d{1,2}):(\d{2}))?$", "weekday"),
+    (r"^(senin|selasa|rabu|kamis|jumat|sabtu|minggu)(?:\s+(depan))?(?:\s+(\d{1,2})[:\.]?(\d{2}))?$", "weekday_id"),
+    # ── Specific dates ──
+    (r"^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})$", "date"),
     (r"^(\d{2})/(\d{2})/(\d{4})\s+(\d{1,2})[:\.]?(\d{2})$", "ddmmyyyy"),
 ]
 
@@ -72,6 +84,50 @@ def _parse_time(text: str) -> datetime | None:
         elif kind == "ddmmyyyy":
             d, mo, y, h, mi = int(match.group(1)), int(match.group(2)), int(match.group(3)), int(match.group(4)), int(match.group(5))
             dt = datetime(y, mo, d, h, mi, tzinfo=WIB)
+            return dt.astimezone(timezone.utc)
+        elif kind in ("in_seconds", "in_minutes", "in_hours"):
+            val = int(match.group(2))
+            if kind == "in_seconds":
+                return now + timedelta(seconds=val)
+            elif kind == "in_minutes":
+                return now + timedelta(minutes=val)
+            else:
+                return now + timedelta(hours=val)
+        elif kind == "in_dur_id":
+            val = int(match.group(1))
+            unit = match.group(2)
+            if "detik" in unit:
+                return now + timedelta(seconds=val)
+            elif "menit" in unit:
+                return now + timedelta(minutes=val)
+            else:
+                return now + timedelta(hours=val)
+        elif kind == "weekday":
+            day_name = match.group(2).lower()
+            is_next = bool(match.group(1))
+            days = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]
+            target = days.index(day_name)
+            now_wib = datetime.now(WIB)
+            diff = target - now_wib.weekday()
+            if diff <= 0 or is_next:
+                diff += 7
+            dt = now_wib + timedelta(days=diff)
+            h = int(match.group(3)) if match.group(3) else 9
+            m = int(match.group(4)) if match.group(4) else 0
+            dt = dt.replace(hour=h, minute=m, second=0, microsecond=0)
+            return dt.astimezone(timezone.utc)
+        elif kind == "weekday_id":
+            id_days = ["senin","selasa","rabu","kamis","jumat","sabtu","minggu"]
+            target = id_days.index(match.group(1).lower())
+            is_next = bool(match.group(2))
+            now_wib = datetime.now(WIB)
+            diff = target - now_wib.weekday()
+            if diff <= 0 or is_next:
+                diff += 7
+            dt = now_wib + timedelta(days=diff)
+            h = int(match.group(3)) if match.group(3) else 9
+            m = int(match.group(4)) if match.group(4) else 0
+            dt = dt.replace(hour=h, minute=m, second=0, microsecond=0)
             return dt.astimezone(timezone.utc)
     return None
 
