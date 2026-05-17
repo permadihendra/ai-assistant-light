@@ -33,6 +33,11 @@
 | OpenCode-Go | `OPENCODE_BASE_URL` | Self-hosted or cloud |
 | Zen | `ZEN_BASE_URL` | Self-hosted, key optional |
 
+## Web Search
+
+Default provider is **DuckDuckGo** — completely free, no API key needed.
+Optionally switch to Brave Search by adding `BRAVE_API_KEY` to `.env`.
+
 ---
 
 ## Quick Start
@@ -143,7 +148,7 @@ Telegram ──► Cloudflare/ngrok ──► FastAPI webhook
               ▼                        ▼                        ▼
         SystemPlugin           WebSearchPlugin          ReminderPlugin
         /ping, /help           /search <query>         /remind, /reminders
-        /status, /start        + Brave Search API      + SQLite + APScheduler
+        /status, /start        + DuckDuckGo Search     + SQLite + APScheduler
                                        │
                               ┌────────┴────────┐
                               │  LLM Provider   │  ← httpx, no SDKs

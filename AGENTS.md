@@ -27,7 +27,7 @@ ai-assistant-light/
 │   ├── plugins/
 │   │   ├── base.py          # Plugin ABC + PluginRegistry singleton
 │   │   ├── system/          # /start, /help, /ping, /status
-│   │   ├── web_search/      # /search — Brave Search API
+│   │   ├── web_search/      # /search — DuckDuckGo (free, no API key)
 │   │   ├── reminder/        # /remind, /reminders, /cancel
 │   │   ├── summarizer/      # /summarize, /lastsummary
 │   │   └── script_runner/   # /run — sandboxed script execution
@@ -180,4 +180,4 @@ sudo systemctl enable --now ai-assistant
 | `/help` returns nothing | SystemPlugin not registered | Register in `app/main.py` |
 | Webhook 401 errors | Secret token mismatch | Check `TELEGRAM_WEBHOOK_SECRET` matches setup |
 | LLM calls fail | Provider not configured | Set API key in `.env` |
-| Rate limited on `/search` | Brave API quota (2k/mo) | Wait or upgrade |
+| Search returns no results | DuckDuckGo rate limiting | Wait a few seconds and retry |

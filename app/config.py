@@ -31,9 +31,11 @@ class Settings(BaseSettings):
     zen_base_url: str = "http://localhost:3000/v1"
     zen_api_key: str = ""
 
-    # ── Brave Search ──────────────────────────────────────
+    # ── Web Search ───────────────────────────────────────
+    search_results: int = 5
+    # DuckDuckGo is the default provider (free, no API key).
+    # Set brave_api_key if you switch to Brave Search API.
     brave_api_key: str = ""
-    brave_search_results: int = 5
 
     # ── Script runner ─────────────────────────────────────
     scripts_dir: str = "scripts"

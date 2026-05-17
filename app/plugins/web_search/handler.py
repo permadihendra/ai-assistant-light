@@ -1,21 +1,23 @@
 import logging
 
-import httpx
+import warnings
+from typing import Any
 
 from app.config import settings
-from app.llm.router import get_provider
 from app.llm.base import LLMMessage
+from app.llm.router import get_provider
 from app.plugins.base import BotContext, Plugin
 
-logger = logging.getLogger(__name__)
+# Suppress the ddgs rename warning
+warnings.filterwarnings("ignore", message=".*ddgs.*")
 
-SEARCH_API_URL = "https://api.search.brave.com/res/v1/web/search"
+logger = logging.getLogger(__name__)
 
 
 class WebSearchPlugin(Plugin):
     name = "web_search"
     commands = ["search"]
-    description = "Search the web using Brave Search API"
+    description = "Search the web using DuckDuckGo (free, no API key needed)"
 
     async def handle(self, ctx: BotContext) -> str | None:
         # Parse query from command: "/search apa itu fastapi" → "apa itu fastapi"
@@ -23,14 +25,11 @@ class WebSearchPlugin(Plugin):
         for cmd in self.commands:
             prefix = f"/{cmd} "
             if ctx.message_text.startswith(prefix):
-                query = ctx.message_text[len(prefix) :]
+                query = ctx.message_text[len(prefix):].strip()
                 break
 
-        if not query.strip():
+        if not query:
             return "❓ Usage: `/search <query>` — search the web."
-
-        if not settings.brave_api_key:
-            return "⚠️ Brave Search API key not configured. Ask the admin to set `BRAVE_API_KEY`."
 
         try:
             results = await self._fetch_results(query)
@@ -39,7 +38,7 @@ class WebSearchPlugin(Plugin):
 
             reply = self._format_results(query, results)
 
-            # Try to synthesize with LLM
+            # Try to synthesize with LLM (optional)
             try:
                 synthesis = await self._synthesize(query, results)
                 if synthesis:
@@ -49,45 +48,51 @@ class WebSearchPlugin(Plugin):
 
             return reply
 
-        except httpx.HTTPStatusError as e:
-            logger.error("Brave API HTTP error: %s", e)
-            return f"⚠️ Search API error: {e.response.status_code}"
-        except httpx.TimeoutException:
-            return "⏱ Search request timed out. Try again later."
         except Exception as e:
             logger.error("Search failed: %s", e, exc_info=True)
-            return "⚠️ Search failed unexpectedly."
+            return "⚠️ Search failed. DuckDuckGo may be rate-limiting. Try again later."
 
-    async def _fetch_results(self, query: str) -> list[dict]:
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.get(
-                SEARCH_API_URL,
-                headers={"X-Subscription-Token": settings.brave_api_key},
-                params={
-                    "q": query,
-                    "count": settings.brave_search_results,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        return data.get("web", {}).get("results", [])
+    async def _fetch_results(self, query: str) -> list[dict[str, Any]]:
+        """Fetch search results from DuckDuckGo."""
+        from ddgs import DDGS
 
-    def _format_results(self, query: str, results: list[dict]) -> str:
+        def _search() -> list[dict[str, Any]]:
+            with DDGS() as ddgs:
+                return ddgs.text(
+                    query,
+                    max_results=settings.search_results or 5,
+                )
+
+        # Run in thread pool to avoid blocking the event loop
+        import asyncio
+        results = await asyncio.to_thread(_search)
+        return results
+
+    def _format_results(self, query: str, results: list[dict[str, Any]]) -> str:
         lines = [f"🔍 *{query}*"]
-        for i, r in enumerate(results[: settings.brave_search_results], 1):
+        for i, r in enumerate(results[: settings.search_results or 5], 1):
             title = r.get("title", "Untitled")
-            url = r.get("url", "")
-            desc = r.get("description", "")
-            snippet = f" — {desc}" if desc else ""
+            url = r.get("href", "")
+            desc = r.get("body", "")
+            snippet = f" — {desc[:150]}" if desc else ""
             lines.append(f"{i}. [{title}]({url}){snippet}")
         return "\n".join(lines)
 
-    async def _synthesize(self, query: str, results: list[dict]) -> str | None:
+    async def _synthesize(self, query: str, results: list[dict[str, Any]]) -> str | None:
+        """Use LLM to synthesize search results into a concise answer."""
         snippets = "\n".join(
-            f"- {r.get('title', '')}: {r.get('description', '')}"
+            f"- {r.get('title', '')}: {r.get('body', '')[:200]}"
             for r in results[:3]
         )
         messages = [
+            LLMMessage(
+                role="system",
+                content=(
+                    "You are a helpful assistant that synthesizes web search results "
+                    "into clear, concise answers. Write 2-3 sentences in the user's "
+                    "language summarising the search results."
+                ),
+            ),
             LLMMessage(
                 role="user",
                 content=(
@@ -95,7 +100,7 @@ class WebSearchPlugin(Plugin):
                     f"{snippets}\n\n"
                     "Provide a concise 2-3 sentence summary."
                 ),
-            )
+            ),
         ]
         provider = get_provider()
         response = await provider.chat(
