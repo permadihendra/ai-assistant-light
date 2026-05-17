@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -23,14 +24,11 @@ PATTERNS = [
 def _parse_time(text: str) -> datetime | None:
     """Parse a time string into a UTC datetime."""
     text = text.strip().lower()
-
     for pattern, kind in PATTERNS:
         match = re.match(pattern, text)
         if not match:
             continue
-
         now = datetime.now(timezone.utc)
-
         if kind == "seconds":
             return now + timedelta(seconds=int(match.group(1)))
         elif kind == "minutes":
@@ -45,12 +43,15 @@ def _parse_time(text: str) -> datetime | None:
         elif kind == "date":
             date_str = match.group(1)
             h, m = int(match.group(2)), int(match.group(3))
-            dt = datetime.strptime(date_str, "%Y-%m-%d").replace(
-                hour=h, minute=m, tzinfo=WIB
-            )
+            dt = datetime.strptime(date_str, "%Y-%m-%d").replace(hour=h, minute=m, tzinfo=WIB)
             return dt.astimezone(timezone.utc)
-
     return None
+
+
+def _fmt_time(dt: datetime) -> str:
+    """Format a datetime to readable WIB time."""
+    local = dt.astimezone(WIB)
+    return local.strftime("%a, %d %b %Y at %H:%M")
 
 
 class ReminderPlugin(Plugin):
@@ -60,110 +61,69 @@ class ReminderPlugin(Plugin):
 
     async def handle(self, ctx: BotContext) -> str | None:
         text = ctx.message_text.strip()
-
         if text.startswith("/reminders"):
             return await self._list_reminders(ctx)
-
         if text.startswith("/cancel "):
             return await self._cancel_reminder(ctx)
-
         if text.startswith("/remind "):
             return await self._set_reminder(ctx)
-
         return None
 
+    # ── CREATE via /remind ────────────────────────────────────────
+
     async def _set_reminder(self, ctx: BotContext) -> str:
-        # Parse: /remind <time> <message>
         rest = ctx.message_text[len("/remind "):].strip()
         if not rest:
-            return "❓ Usage: `/remind 10m buy milk` or `/remind tomorrow 09:00 meeting`"
+            return "❓ Usage: `/remind 10m buy milk`"
 
-        # Split on first space to separate time from message
         parts = rest.split(maxsplit=1)
         if len(parts) < 2:
             return "❓ Usage: `/remind 10m buy milk`"
 
         time_str, message = parts
         remind_at = _parse_time(time_str)
-
         if remind_at is None:
-            return (
-                "❌ Could not parse time. Use formats:\n"
-                "• `30s`, `10m`, `2h`\n"
-                "• `tomorrow 09:00`\n"
-                "• `2026-06-01 08:00`"
-            )
-
+            return "❌ Could not parse time. Use `30s`, `10m`, `2h`, `tomorrow 09:00`, or `2026-06-01 08:00`."
         if remind_at < datetime.now(timezone.utc):
             return "❌ Time must be in the future."
 
         db = await get_db()
+        if await self._over_limit(db, ctx.chat_id):
+            return f"⚠️ Max {MAX_ACTIVE_PER_CHAT} active reminders per chat."
 
-        # Check max active reminders per chat
-        cursor = await db.execute(
-            "SELECT COUNT(*) FROM reminders WHERE chat_id = ? AND fired = 0",
-            (ctx.chat_id,),
-        )
-        row = await cursor.fetchone()
-        if row and row[0] >= MAX_ACTIVE_PER_CHAT:
-            return f"⚠️ Maximum {MAX_ACTIVE_PER_CHAT} active reminders per chat."
-
-        cursor = await db.execute(
-            "INSERT INTO reminders (chat_id, user_id, text, remind_at, alerts) VALUES (?, ?, ?, ?, ?)",
+        c = await db.execute(
+            "INSERT INTO reminders (chat_id, user_id, text, remind_at, alerts) VALUES (?,?,?,?,?)",
             (ctx.chat_id, ctx.user_id, message, remind_at.isoformat(), "[10]"),
         )
-        reminder_id = cursor.lastrowid
+        rid = c.lastrowid
         await db.commit()
 
-        local_time = remind_at.astimezone(WIB)
-        time_str = local_time.strftime("%A, %d %b %Y at %H:%M")
+        return f"✅ *Reminder #{rid} set!*\n📋 {message}\n⏰ {_fmt_time(remind_at)}\n🔔 10min before"
 
-        return (
-            f"✅ *Reminder #{reminder_id} set!*\n"
-            f"📋 {message}\n"
-            f"⏰ {time_str}\n"
-            f"🔔 10min before"
-        )
+    # ── CREATE via BrainPlugin (inserts source_text) ──────────────
 
     async def create_reminder(
-        self, chat_id: int, user_id: int, text: str, remind_at: datetime, alerts: list[int] | None = None
+        self, chat_id: int, user_id: int, text: str, remind_at: datetime,
+        alerts: list[int] | None = None, source_text: str = "",
     ) -> str:
-        """Direct API for BrainPlugin — skips command parsing. Returns reminder ID."""
-        import json
-
         if remind_at < datetime.now(timezone.utc):
             return "❌ Time must be in the future."
 
         db = await get_db()
-        cursor = await db.execute(
-            "SELECT COUNT(*) FROM reminders WHERE chat_id = ? AND fired = 0",
-            (chat_id,),
-        )
-        row = await cursor.fetchone()
-        if row and row[0] >= MAX_ACTIVE_PER_CHAT:
-            return f"⚠️ Maximum {MAX_ACTIVE_PER_CHAT} active reminders per chat."
+        if await self._over_limit(db, chat_id):
+            return f"⚠️ Max {MAX_ACTIVE_PER_CHAT} active reminders per chat."
 
         alerts_json = json.dumps(alerts or [10])
-        cursor = await db.execute(
-            "INSERT INTO reminders (chat_id, user_id, text, remind_at, alerts) VALUES (?, ?, ?, ?, ?)",
-            (chat_id, user_id, text, remind_at.isoformat(), alerts_json),
+        c = await db.execute(
+            "INSERT INTO reminders (chat_id, user_id, text, remind_at, alerts, source_text) VALUES (?,?,?,?,?,?)",
+            (chat_id, user_id, text, remind_at.isoformat(), alerts_json, source_text),
         )
-        reminder_id = cursor.lastrowid
+        rid = c.lastrowid
         await db.commit()
 
-        # Format time nicely
-        local_time = remind_at.astimezone(WIB)
-        time_str = local_time.strftime("%A, %d %b %Y at %H:%M")
+        return f"✅ *Reminder #{rid} set!*\n📋 {text}\n⏰ {_fmt_time(remind_at)}\n🔔 10min before\n📎 Use /note {rid} for source."
 
-        alert_str = ""
-        if alerts:
-            alert_str = "\n🔔 " + " + ".join(f"{m}min before" for m in alerts)
-
-        return (
-            f"✅ *Reminder #{reminder_id} set!*\n"
-            f"📋 {text}\n"
-            f"⏰ {time_str}{alert_str}"
-        )
+    # ── LIST ──────────────────────────────────────────────────────
 
     async def _list_reminders(self, ctx: BotContext) -> str:
         db = await get_db()
@@ -177,31 +137,67 @@ class ReminderPlugin(Plugin):
         if not rows:
             return "📭 No active reminders."
 
-        lines = ["📋 *Your reminders:*"]
-        for row in rows:
-            dt = datetime.fromisoformat(row["remind_at"])
-            lines.append(
-                f"`{row['id']:>3}` — {row['text']} — <t:{int(dt.timestamp())}:R>"
-            )
+        lines = ["📋 *Your Reminders*"]
+        for r in rows:
+            dt = datetime.fromisoformat(r["remind_at"])
+            local = dt.astimezone(WIB)
+            time_short = local.strftime("%a, %d %b %H:%M")
+            preview = r["text"][:45] + "..." if len(r["text"]) > 45 else r["text"]
+            lines.append(f"  `#{r['id']:<3}` {preview:<47} {time_short}")
 
+        lines.append("")
+        lines.append("🔔 10min before each")
+        lines.append("`/cancel <id>` to cancel  |  `/note <id>` for source")
         return "\n".join(lines)
+
+    # ── CANCEL ────────────────────────────────────────────────────
 
     async def _cancel_reminder(self, ctx: BotContext) -> str:
         try:
-            reminder_id = int(ctx.message_text[len("/cancel "):].strip())
+            rid = int(ctx.message_text[len("/cancel "):].strip())
         except (ValueError, IndexError):
-            return "❓ Usage: `/cancel <id>` — cancel a reminder by ID."
+            return "❓ Usage: `/cancel <id>`"
 
         db = await get_db()
-        cursor = await db.execute(
-            "SELECT id FROM reminders WHERE id = ? AND chat_id = ? AND fired = 0",
-            (reminder_id, ctx.chat_id),
-        )
-        row = await cursor.fetchone()
-
-        if not row:
+        c = await db.execute("SELECT id FROM reminders WHERE id=? AND chat_id=? AND fired=0", (rid, ctx.chat_id))
+        if not await c.fetchone():
             return "❌ Reminder not found or already fired."
 
-        await db.execute("DELETE FROM reminders WHERE id = ?", (reminder_id,))
+        await db.execute("DELETE FROM reminders WHERE id=?", (rid,))
         await db.commit()
-        return f"✅ Cancelled reminder `{reminder_id}`."
+        return f"✅ Cancelled reminder `{rid}`."
+
+    # ── SOURCE (called by NotesPlugin or directly) ────────────────
+
+    async def get_source(self, chat_id: int, reminder_id: int) -> str | None:
+        """Return the source_text of a reminder, or None."""
+        db = await get_db()
+        c = await db.execute(
+            "SELECT id, text, remind_at, source_text FROM reminders WHERE id=? AND chat_id=?",
+            (reminder_id, chat_id),
+        )
+        r = await c.fetchone()
+        if not r:
+            return None
+
+        lines = [f"📌 *Reminder #{r['id']} — source*"]
+        lines.append(f"⏰ {_fmt_time(datetime.fromisoformat(r['remind_at']))}")
+        lines.append(f"📋 {r['text']}")
+
+        src = (r["source_text"] or "").strip()
+        if src:
+            lines.append("")
+            lines.append("*Original message:*")
+            lines.append(f"> {src[:1000]}")
+        else:
+            lines.append("")
+            lines.append("_No source message saved._")
+
+        return "\n".join(lines)
+
+    # ── HELPERS ───────────────────────────────────────────────────
+
+    async def _over_limit(self, db, chat_id: int) -> bool:
+        c = await db.execute("SELECT COUNT(*) FROM reminders WHERE chat_id=? AND fired=0", (chat_id,))
+        r = await c.fetchone()
+        return r and r[0] >= MAX_ACTIVE_PER_CHAT
