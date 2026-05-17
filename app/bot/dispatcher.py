@@ -39,6 +39,11 @@ async def dispatch(update) -> str | None:
         pending_state.clear(chat_id)
         logger.info("Auto-cancelled pending for new message: %.80s", text)
 
+    # ── 1.5. Stray yes/no without pending ──────────────────────
+    lower = text.lower().strip()
+    if lower in ("yes", "y", "yeah", "no", "n", "ok", "confirm"):
+        return "No pending actions. Send me a new agenda or use /help."
+
     # Build context for normal routing
     from app.bot.context import build_context
     ctx = build_context(update, text)

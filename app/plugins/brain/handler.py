@@ -50,17 +50,27 @@ class BrainPlugin(Plugin):
 
     async def handle(self, ctx: BotContext) -> str | None:
         self._original_ctx = ctx
+
+        # Skip pure separators (===, ---, ***, ___)
+        import re
+        if re.match(r"^[=\-*_#~]{3,}$", ctx.message_text.strip()):
+            return None
+
         provider = self._get_provider()
         if provider is None:
             return None
 
         try:
+            # Dynamic token budget: longer input → more output room
+            input_len = len(ctx.message_text)
+            output_budget = max(1024, min(8192, input_len * 2))
+
             response = await provider.chat(
                 messages=[
                     LLMMessage(role="system", content=BRAIN_SYSTEM_PROMPT),
                     LLMMessage(role="user", content=ctx.message_text),
                 ],
-                max_tokens=2048,
+                max_tokens=output_budget,
                 timeout=30.0,
             )
 
