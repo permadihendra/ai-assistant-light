@@ -1,3 +1,4 @@
+from collections import defaultdict
 import json
 import logging
 import re
@@ -94,6 +95,8 @@ class BrainPlugin(Plugin):
 
         try:
             data = json.loads(text)
+            if isinstance(data, list):
+                return data  # Raw array of actions
             if isinstance(data, dict):
                 if "actions" in data and isinstance(data["actions"], list):
                     return data["actions"]
@@ -165,23 +168,48 @@ class BrainPlugin(Plugin):
 
         # Everything else → show preview + ask confirm
         preview_lines = ["Here's what I'll do:", ""]
+
+        # Group reminders by date, keep non-reminder items separate
+        remind_items: list[dict] = []
+        other_items: list[dict] = []
         for item in validated:
+            if item.get("action") == "remind_create":
+                remind_items.append(item)
+            else:
+                other_items.append(item)
+
+        # Group reminders by date prefix
+        by_day = defaultdict(list)
+        for item in remind_items:
+            day = item.get("time", "?").split(" ")[0] if " " in item.get("time", "") else item.get("time", "?")
+            by_day[day].append(item)
+
+        # Show non-reminder items first (notes, pc, etc)
+        for item in other_items:
             a = item.get("action", "")
             if a == "note_save":
                 t = item.get("text", "")[:60]
                 preview_lines.append(f"📝 Save note: {t}")
-            elif a == "remind_create":
-                t = item.get("text", "")
-                tm = item.get("time", "?")
-                preview_lines.append(f"⏰ Reminder: {t} ({tm})")
-            elif a == "pc_on":
-                preview_lines.append("💻 Turn ON your PC")
-            elif a == "pc_off":
-                preview_lines.append("💻 Turn OFF your PC")
+            elif a in ("pc_on", "pc_off"):
+                preview_lines.append("💻 " + ("Turn ON PC" if a == "pc_on" else "Turn OFF PC"))
             else:
                 preview_lines.append(f"• {a}: {item.get('text', '')}")
 
-        preview_lines.extend(["", "Reply 'yes' to confirm, 'no' to cancel."])
+        if other_items and remind_items:
+            preview_lines.append("")
+
+        # Show reminders grouped by day
+        for day, items in sorted(by_day.items()):
+            preview_lines.append(f"📅 {day}")
+            for item in items:
+                t = item.get("text", "")
+                tm = item.get("time", "?").split(" ")[-1] if " " in item.get("time", "") else "?"
+                preview_lines.append(f"   ⏰ {tm} - {t}")
+            preview_lines.append("")
+
+        total = len(remind_items) + len(other_items)
+        preview_lines.append(f"Total: {total} item{'s' if total > 1 else ''}")
+        preview_lines.append("Reply 'yes' to confirm, 'no' to cancel.")
 
         # Store in pending state
         pending_state.set(ctx.chat_id, {

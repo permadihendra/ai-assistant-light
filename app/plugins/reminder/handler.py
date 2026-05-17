@@ -125,7 +125,7 @@ class ReminderPlugin(Plugin):
 
         cursor = await db.execute(
             "INSERT INTO reminders (chat_id, user_id, text, remind_at, alerts) VALUES (?, ?, ?, ?, ?)",
-            (ctx.chat_id, ctx.user_id, message, remind_at.isoformat(), "[15, 5]"),
+            (ctx.chat_id, ctx.user_id, message, remind_at.isoformat(), "[10]"),
         )
         reminder_id = cursor.lastrowid
         await db.commit()
@@ -137,7 +137,7 @@ class ReminderPlugin(Plugin):
             f"✅ *Reminder #{reminder_id} set!*\n"
             f"📋 {message}\n"
             f"⏰ {time_str}\n"
-            f"🔔 15min + 5min before"
+            f"🔔 10min before"
         )
 
     async def create_reminder(
@@ -158,7 +158,7 @@ class ReminderPlugin(Plugin):
         if row and row[0] >= MAX_ACTIVE_PER_CHAT:
             return f"⚠️ Maximum {MAX_ACTIVE_PER_CHAT} active reminders per chat."
 
-        alerts_json = json.dumps(alerts or [15, 5])
+        alerts_json = json.dumps(alerts or [10])
         cursor = await db.execute(
             "INSERT INTO reminders (chat_id, user_id, text, remind_at, alerts) VALUES (?, ?, ?, ?, ?)",
             (chat_id, user_id, text, remind_at.isoformat(), alerts_json),
