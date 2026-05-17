@@ -15,7 +15,9 @@ router = APIRouter()
 
 
 async def _send_telegram_message(chat_id: int, text: str, keyboard=None) -> None:
-    """Send a message via Telegram Bot API using raw httpx."""
+    """Send a message via Telegram Bot API using raw httpx.
+    Falls back to plain text if markdown causes 400 error.
+    """
     import httpx
 
     url = f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage"
@@ -28,7 +30,14 @@ async def _send_telegram_message(chat_id: int, text: str, keyboard=None) -> None
         payload["reply_markup"] = json.loads(keyboard) if isinstance(keyboard, str) else keyboard
 
     async with httpx.AsyncClient(timeout=10.0) as client:
-        await client.post(url, json=payload)
+        resp = await client.post(url, json=payload)
+        # If markdown fails (400), retry as plain text
+        if resp.status_code == 400:
+            logger.warning("Markdown send failed, retrying as plain text")
+            payload.pop("parse_mode", None)
+            resp = await client.post(url, json=payload)
+            if resp.status_code != 200:
+                logger.error("Plain text send also failed: %s", resp.text)
 
 
 async def _edit_message_text(chat_id: int, message_id: int, text: str, keyboard=None) -> None:

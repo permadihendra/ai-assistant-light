@@ -336,7 +336,7 @@ class BrainPlugin(Plugin):
             return None
 
         if remind_at < datetime.now(timezone.utc):
-            return "Waktu sudah lewat — tidak bisa set pengingat di masa lalu ⏰"
+            return "❌ Waktu sudah lewat ('" + time_str + "'). Bot tidak bisa mengingatkan untuk waktu yang sudah berlalu."
 
         if not isinstance(alerts, list):
             alerts = [15, 5]
