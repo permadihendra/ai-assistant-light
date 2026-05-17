@@ -42,6 +42,10 @@ class PluginRegistry:
     def register(self, plugin: "Plugin") -> None:
         self._plugins[plugin.name] = plugin
 
+    def get_plugin(self, name: str) -> "Plugin | None":
+        """Get a plugin by its name."""
+        return self._plugins.get(name)
+
     def resolve(self, command: str) -> "Plugin | None":
         for p in self._plugins.values():
             if command in p.commands:

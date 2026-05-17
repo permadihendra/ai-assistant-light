@@ -8,6 +8,7 @@ from app.config import settings
 from app.database import init_db
 from app.llm.router import get_provider
 from app.plugins.base import PluginRegistry
+from app.plugins.brain.handler import BrainPlugin
 from app.plugins.reminder.handler import ReminderPlugin
 from app.plugins.script_runner.handler import ScriptRunnerPlugin
 from app.plugins.summarizer.handler import SummarizerPlugin
@@ -35,6 +36,7 @@ async def lifespan(app: FastAPI):
 
     registry = PluginRegistry.get()
     plugins = [
+        BrainPlugin(),  # ← must be first — handles non-command messages
         SystemPlugin(),
         WebSearchPlugin(),
         ReminderPlugin(),

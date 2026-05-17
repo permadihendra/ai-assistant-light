@@ -15,8 +15,9 @@ class Settings(BaseSettings):
     allowed_chat_ids: list[int] = []
 
     # ── LLM routing ───────────────────────────────────────
-    llm_provider: str = "anthropic"
-    llm_model: str = "claude-3-5-haiku-20241022"
+    # Default: Gemini 2.0 Flash (free tier — 1,500 req/day, no credit card)
+    llm_provider: str = "gemini"
+    llm_model: str = "gemini-2.5-flash"
     llm_max_tokens: int = 1024
     llm_timeout: float = 30.0
 

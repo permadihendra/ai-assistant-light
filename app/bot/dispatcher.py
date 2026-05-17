@@ -7,17 +7,36 @@ logger = logging.getLogger(__name__)
 
 
 async def dispatch(update) -> str | None:
-    """Map an incoming Telegram update to the correct plugin handler."""
+    """Map an incoming Telegram update to the correct handler.
+
+    - Slash commands → matched to their plugin via PluginRegistry.resolve()
+    - Free text → routed to the BrainPlugin for LLM understanding
+    """
     message = update.message or update.edited_message
     if not message or not message.text:
         return None
 
     text = message.text.strip()
 
-    # Check if it's a command
+    # Build context (used by both command and brain paths)
+    from app.bot.context import build_context
+
+    ctx = build_context(update, text)
+
+    # ── Non-command messages → BrainPlugin ────────────────
     if not text.startswith("/"):
+        registry = PluginRegistry.get()
+        brain = registry.get_plugin("brain")
+        if brain:
+            try:
+                reply = await brain.handle(ctx)
+                if reply:
+                    return reply
+            except Exception as e:
+                logger.error("Brain plugin failed: %s", e, exc_info=True)
         return None
 
+    # ── Slash commands → resolve to plugin ────────────────
     # Extract the command name (strip / and any @botusername suffix)
     command = text.split()[0].split("@")[0].lower().lstrip("/")
 
@@ -28,16 +47,10 @@ async def dispatch(update) -> str | None:
     if plugin is None:
         return None
 
-    # Build context and handle
-    from app.bot.context import build_context
-
-    ctx = build_context(update, text)
-
-    # Authorization check
+    # Authorization: only /run is restricted to ALLOWED_CHAT_IDS
     if settings.allowed_chat_ids and ctx.chat_id not in settings.allowed_chat_ids:
         if command in ("run",):
             return "⛔ You are not authorized to use this command."
-        # Other commands are allowed in any chat, but we still check later
 
     try:
         reply = await plugin.handle(ctx)
