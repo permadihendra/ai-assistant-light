@@ -154,18 +154,17 @@ class BrainPlugin(Plugin):
             if action == "chat":
                 return params.get("text") or params.get("response") or "🤔"
 
-            # Validate remind_create time is actually parseable
+            # Validate remind_create time — must have BOTH date AND hour
             if action == "remind_create":
-                from app.plugins.reminder.handler import _parse_time
                 ts = params.get("time", "")
-                if ts and not _parse_time(ts):
-                    # Time exists but can't be parsed → ask user
+                if ts and not _has_explicit_hour(ts):
+                    # Time exists but no hour specified → ask
                     pending_state.set(ctx.chat_id, {
                         "stage": "ask_time",
                         "action": {"action": "remind_create", **params, "time": ""},
                         "original_text": ctx.message_text,
                     })
-                    return "📅 Tanggal/jam tidak jelas. Reply dengan format `dd/mm/yyyy hh:mm` atau `besok hh:mm`"
+                    return "⏰ Jamnya belum disebut. Reply dengan jam-nya aja, misal `09:00` atau `14:30`"
 
             # Check required params
             required = _REQUIRED_PARAMS.get(action, [])
@@ -407,3 +406,23 @@ class Ask:
 def _acknowledge_long(text: str) -> str:
     """Fallback when Gemini can't process — never leak raw JSON."""
     return "📨 Pesan diterima, tapi terlalu panjang untuk saya proses. Coba kirim per bagian (maks 3-4 agenda per pesan) ya!"
+
+
+def _has_explicit_hour(time_str: str) -> bool:
+    """Check if a time string includes an explicit hour (not just a date keyword).
+    
+    'tomorrow' → False (no hour)
+    'tomorrow 09:00' → True
+    'besok' → False
+    'besok 09:00' → True
+    '20/05/2026 09:00' → True
+    """
+    # Has a digit followed by : or . (like 09:00, 9:00, 9.00)
+    import re
+    if re.search(r"\d{1,2}[:\.]\d{2}", time_str):
+        return True
+    # Has specific hour notation (9am, 9pm, 9 AM)
+    if re.search(r"\d{1,2}\s*(am|pm)", time_str, re.IGNORECASE):
+        return True
+    # Only date keywords without digits → no hour
+    return False

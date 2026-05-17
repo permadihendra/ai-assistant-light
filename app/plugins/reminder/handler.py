@@ -27,7 +27,7 @@ PATTERNS = [
     (r"^now$", "now"),
     (r"^sekarang$", "now"),
     # ── Tomorrow / Besok / Lusa ──
-    (r"^tomorrow(?:\s+(\d{1,2}):(\d{2}))?$", "tomorrow"),
+    (r"^tomorrow\s+(\d{1,2}):(\d{2})$", "tomorrow"),
     (r"^besok(?:\s+(\d{1,2})[:\.]?(\d{2}))?$", "tomorrow"),
     (r"^lusa(?:\s+(\d{1,2})[:\.]?(\d{2}))?$", "day_after"),
     # ── Day names ──
@@ -36,6 +36,9 @@ PATTERNS = [
     # ── Specific dates ──
     (r"^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})$", "date"),
     (r"^(\d{2})/(\d{2})/(\d{4})\s+(\d{1,2})[:\.]?(\d{2})$", "ddmmyyyy"),
+    # ── Just hour:minute (replies to 'Jam berapa?' prompts) ──
+    (r"^(\d{1,2})[:\.](\d{2})$", "hourmin"),
+    (r"^(\d{1,2})\s*(am|pm)$", "hour_am"),
 ]
 
 
@@ -54,10 +57,7 @@ def _parse_time(text: str) -> datetime | None:
         elif kind == "hours":
             return now + timedelta(hours=int(match.group(1)))
         elif kind == "tomorrow":
-            if match.group(1) and match.group(2):
-                h, m = int(match.group(1)), int(match.group(2))
-            else:
-                h, m = 9, 0  # default: 9 AM
+            h, m = int(match.group(1)), int(match.group(2))
             dt = datetime.now(WIB).replace(hour=h, minute=m, second=0, microsecond=0)
             dt += timedelta(days=1)
             return dt.astimezone(timezone.utc)
@@ -87,6 +87,25 @@ def _parse_time(text: str) -> datetime | None:
         elif kind == "ddmmyyyy":
             d, mo, y, h, mi = int(match.group(1)), int(match.group(2)), int(match.group(3)), int(match.group(4)), int(match.group(5))
             dt = datetime(y, mo, d, h, mi, tzinfo=WIB)
+            return dt.astimezone(timezone.utc)
+        elif kind == "hourmin":
+            h, mi = int(match.group(1)), int(match.group(2))
+            now = datetime.now(WIB)
+            dt = now.replace(hour=h, minute=mi, second=0, microsecond=0)
+            # If time already passed today, assume tomorrow
+            if dt <= now:
+                dt += timedelta(days=1)
+            return dt.astimezone(timezone.utc)
+        elif kind == "hour_am":
+            h = int(match.group(1))
+            if match.group(2).lower() == "pm" and h < 12:
+                h += 12
+            if match.group(2).lower() == "am" and h == 12:
+                h = 0
+            now = datetime.now(WIB)
+            dt = now.replace(hour=h, minute=0, second=0, microsecond=0)
+            if dt <= now:
+                dt += timedelta(days=1)
             return dt.astimezone(timezone.utc)
         elif kind in ("in_seconds", "in_minutes", "in_hours"):
             val = int(match.group(2))
