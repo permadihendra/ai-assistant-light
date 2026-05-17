@@ -199,15 +199,27 @@ async def _execute_pending_actions(chat_id: int, state: dict) -> str:
                 replies.append(f"❌ {action} failed — try again?")
 
     if not replies:
-        return "✅ Done! Nothing to do though. 🤔"
+        return "🤔 Nothing to do."
 
-    if len(replies) == 1:
-        return replies[0]
+    # Separate successes from failures
+    ok = [r for r in replies if r.startswith("✅")]
+    fail = [r for r in replies if not r.startswith("✅")]
 
-    summary = "✅ *Done!*\n\n" + "\n\n".join(
-        f"{i+1}. {r}" for i, r in enumerate(replies)
-    )
-    return summary
+    if ok and not fail:
+        if len(ok) == 1:
+            return ok[0]
+        return "✅ *Done!*\n\n" + "\n\n".join(ok)
+
+    if fail and not ok:
+        msg = "❌ Gagal membuat pengingat:\n\n" + "\n\n".join(fail)
+        msg += "\n\nCoba cek apakah tanggalnya sudah lewat."
+        return msg
+
+    # Mixed success + failure
+    msg = "⚠️ *Partial success*\n\n"
+    msg += "✅ Berhasil:\n" + "\n".join(f"  {r}" for r in ok) + "\n\n"
+    msg += "❌ Gagal:\n" + "\n".join(f"  {r}" for r in fail)
+    return msg
 
 
 async def _process_single_action(chat_id: int, action: dict) -> str | None:

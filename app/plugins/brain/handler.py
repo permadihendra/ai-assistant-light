@@ -332,10 +332,11 @@ class BrainPlugin(Plugin):
             logger.debug("Could not parse time: %s", time_str)
 
         if not remind_at:
+            logger.info("Time parse failed for: %s", time_str)
             return None
 
         if remind_at < datetime.now(timezone.utc):
-            return "That time's already passed! 🕰️"
+            return "Waktu sudah lewat — tidak bisa set pengingat di masa lalu ⏰"
 
         if not isinstance(alerts, list):
             alerts = [15, 5]
