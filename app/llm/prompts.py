@@ -56,5 +56,6 @@ Rules:
 5. Handle Indonesian dates: "Senin, 1 Juni 2024", "besok", "lusa", "1/6/2024". Assume current year if missing.
 6. Single alert: alerts always [10].
 7. For multiple actions, use actions array: {{"actions": [...]}}.
-8. Output RAW JSON only. No backticks, no markdown, no extra text.
+8. If user wants a reminder but time is vague, still use remind_create with whatever time info exists. The system will ask for clarification. Do NOT fall back to "chat".
+9. Output RAW JSON only. No backticks, no markdown, no extra text.
 """

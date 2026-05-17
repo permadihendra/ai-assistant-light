@@ -19,7 +19,11 @@ PATTERNS = [
     (r"^tomorrow\s+(\d{1,2}):(\d{2})$", "tomorrow"),
     (r"^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})$", "date"),
     (r"^today(?:\s+(\d{1,2}):(\d{2}))?$", "today"),
+    (r"^(?:hari\s+)?ini(?:\s+(\d{1,2})[:\.]?(\d{2}))?$", "today"),
     (r"^now$", "now"),
+    (r"^besok(?:\s+(\d{1,2})[:\.]?(\d{2}))?$", "tomorrow"),
+    (r"^lusa(?:\s+(\d{1,2})[:\.]?(\d{2}))?$", "day_after"),
+    (r"^(\d{2})/(\d{2})/(\d{4})\s+(\d{1,2})[:\.]?(\d{2})$", "ddmmyyyy"),
 ]
 
 
@@ -59,6 +63,16 @@ def _parse_time(text: str) -> datetime | None:
             return dt.astimezone(timezone.utc)
         elif kind == "now":
             return datetime.now(timezone.utc) + timedelta(minutes=1)
+        elif kind == "day_after":
+            dt = datetime.now(WIB) + timedelta(days=2)
+            if match.group(1) and match.group(2):
+                h, m = int(match.group(1)), int(match.group(2))
+                dt = dt.replace(hour=h, minute=m, second=0, microsecond=0)
+            return dt.astimezone(timezone.utc)
+        elif kind == "ddmmyyyy":
+            d, mo, y, h, mi = int(match.group(1)), int(match.group(2)), int(match.group(3)), int(match.group(4)), int(match.group(5))
+            dt = datetime(y, mo, d, h, mi, tzinfo=WIB)
+            return dt.astimezone(timezone.utc)
     return None
 
 

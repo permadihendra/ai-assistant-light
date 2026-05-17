@@ -154,6 +154,19 @@ class BrainPlugin(Plugin):
             if action == "chat":
                 return params.get("text") or params.get("response") or "🤔"
 
+            # Validate remind_create time is actually parseable
+            if action == "remind_create":
+                from app.plugins.reminder.handler import _parse_time
+                ts = params.get("time", "")
+                if ts and not _parse_time(ts):
+                    # Time exists but can't be parsed → ask user
+                    pending_state.set(ctx.chat_id, {
+                        "stage": "ask_time",
+                        "action": {"action": "remind_create", **params, "time": ""},
+                        "original_text": ctx.message_text,
+                    })
+                    return "📅 Tanggal/jam tidak jelas. Reply dengan format `dd/mm/yyyy hh:mm` atau `besok hh:mm`"
+
             # Check required params
             required = _REQUIRED_PARAMS.get(action, [])
             missing_params = [p for p in required if not params.get(p)]
@@ -372,21 +385,23 @@ class Ask:
     def question(ctx: BotContext, existing_params: dict, stage: str) -> str:
         chat_id = ctx.chat_id
 
+        # Normalize stage names
+        normalized = "ask_time" if "remind_create" in stage else stage
+
         questions = {
-            "remind_create": "📋 What do you need to be reminded about, and when? (e.g., 'meeting tomorrow 9am')",
-            "remind_create_time": "⏰ When? (e.g., tomorrow 9am, in 2 hours, June 1st 08:00)",
-            "remind_create_text": "📋 Remind you about what?",
+            "ask_time": "⏰ Kapan? Reply dengan format `besok 09:00`, `20/05/2026 09:00`, atau `nanti 2 jam`",
+            "ask_text": "📋 Remind you about what?",
             "note_save": "📝 What should I save as a note?",
             "search": "🔍 What should I search for?",
         }
 
         pending_state.set(chat_id, {
-            "stage": stage,
-            "action": {"action": "remind_create" if stage.startswith("remind_create") else stage, **existing_params},
+            "stage": normalized,
+            "action": {"action": "remind_create" if "remind" in stage else stage, **existing_params},
             "original_text": ctx.message_text,
         })
 
-        return questions.get(stage, "Could you clarify?")
+        return questions.get(normalized, "Could you clarify?")
 
 
 def _acknowledge_long(text: str) -> str:
