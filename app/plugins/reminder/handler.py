@@ -161,14 +161,14 @@ class ReminderPlugin(Plugin):
             blocks.append(
                 f"#{r['id']} {preview}\n"
                 f"   ⏰ {time_str}\n"
-                f"   🔔 10min before  ─  /note {r['id']}  ─  /cancel {r['id']}"
+                f"   🔔 10min before"
             )
 
         header = "📋 *Your Reminders*"
+        hint = "`/cancel <id>` to remove  ·  `/note <id>` for source"
         body = f"\n{sep}\n".join(blocks)
-        footer = "\n🔔 Each alerts 10min before"
 
-        return f"{header}\n{body}{footer}"
+        return f"{header}\n{hint}\n{body}"
 
     # ── CANCEL ────────────────────────────────────────────────────
 
