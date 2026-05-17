@@ -19,7 +19,7 @@ async def dispatch(update) -> str | None:
     """Route incoming messages to the right handler.
 
     Priority:
-    1. Pending state (user is responding to a previous bot question)
+    1. Pending state — but ONLY if message looks like a reply
     2. Slash commands → resolved to plugin
     3. Free text → BrainPlugin
     """
@@ -30,10 +30,14 @@ async def dispatch(update) -> str | None:
     text = message.text.strip()
     chat_id = message.chat_id
 
-    # ── 1. Check pending state (user replying to bot's question) ──
+    # ── 1. Check pending state — only if message IS a reply ──
     state = pending_state.get(chat_id)
-    if state:
+    if state and _is_pending_reply(text):
         return await _handle_pending_reply(chat_id, text, state)
+    elif state:
+        # Message looks like new content — auto-cancel old pending
+        pending_state.clear(chat_id)
+        logger.info("Auto-cancelled pending for new message: %.80s", text)
 
     # Build context for normal routing
     from app.bot.context import build_context
@@ -65,6 +69,46 @@ async def dispatch(update) -> str | None:
         except Exception as e:
             logger.error("Brain failed: %s", e, exc_info=True)
     return None
+
+
+# ── Detect if message is a reply to pending or fresh content ──────
+
+
+def _is_pending_reply(text: str) -> bool:
+    """Check if a message looks like a reply to a pending question.
+
+    Returns True if message is short and looks like a confirmation response.
+    Returns False if message looks like fresh content (forwarded, agenda, etc).
+    """
+    lower = text.strip().lower()
+
+    # Commands are always fresh
+    if text.startswith("/"):
+        return False
+
+    # Long messages = new content, not a reply
+    if len(text) > 100:
+        return False
+
+    # Messages with agenda/date formatting = new content
+    if any(sym in text for sym in ("📅", "🗓️", "📋", "⏰", "🗒")):
+        return False
+
+    # Messages that look like dates = new content
+    import re
+    if re.search(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b", text):
+        return False
+    if re.search(r"\b(januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)", lower):
+        return False
+    if re.search(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)", lower):
+        return False
+    if re.search(r"\b(senin|selasa|rabu|kamis|jumat|sabtu|minggu)", lower):
+        return False
+    if re.search(r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)", lower):
+        return False
+
+    # Short yes/no/edit numbers = reply
+    return True
 
 
 # ── Pending reply handling ──────────────────────────────────────────
