@@ -161,7 +161,12 @@ async def _handle_pending_reply(chat_id: int, text: str, state: dict) -> str | N
             return await _process_single_action(chat_id, action)
         else:
             pending_state.set(chat_id, {**state, "stage": "ask_time"})
-            return "⏰ Masih belum jelas. Reply dengan format `20/05/2026 09:00` atau `besok 09:00`"
+            from app.plugins.brain.handler import _lang
+            original = state.get("original_text", "")
+            if _lang(original) == "id":
+                return "⏰ Masih belum jelas. Reply `20/05/2026 09:00` atau `besok 09:00`"
+            else:
+                return "⏰ Still unclear. Reply `20/05/2026 09:00` or `tomorrow 09:00`"
 
     # ── Asking for text ──────────────────────────────────────
     if stage == "ask_text":

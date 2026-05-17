@@ -164,7 +164,10 @@ class BrainPlugin(Plugin):
                         "action": {"action": "remind_create", **params, "time": ""},
                         "original_text": ctx.message_text,
                     })
-                    return "⏰ Jamnya belum disebut. Reply dengan jam-nya aja, misal `09:00` atau `14:30`"
+                    if _lang(ctx.message_text) == "id":
+                        return "⏰ Jamnya belum disebut. Reply dengan jam-nya aja, misal `09:00` atau `14:30`"
+                    else:
+                        return "⏰ Hour not specified. Reply with just the time, e.g. `09:00` or `14:30`"
 
             # Check required params
             required = _REQUIRED_PARAMS.get(action, [])
@@ -389,6 +392,7 @@ class Ask:
 
         questions = {
             "ask_time": "⏰ Kapan? Reply dengan format `besok 09:00`, `20/05/2026 09:00`, atau `nanti 2 jam`",
+            "ask_time_en": "⏰ When? Reply with format `tomorrow 09:00`, `20/05/2026 09:00`, or `in 2 hours`",
             "ask_text": "📋 Remind you about what?",
             "note_save": "📝 What should I save as a note?",
             "search": "🔍 What should I search for?",
@@ -400,6 +404,10 @@ class Ask:
             "original_text": ctx.message_text,
         })
 
+        # Pick language based on user's message
+        if normalized == "ask_time":
+            key = "ask_time" if _lang(ctx.message_text) == "id" else "ask_time_en"
+            return questions[key]
         return questions.get(normalized, "Could you clarify?")
 
 
@@ -426,3 +434,15 @@ def _has_explicit_hour(time_str: str) -> bool:
         return True
     # Only date keywords without digits → no hour
     return False
+
+def _lang(msg: str) -> str:
+    """Detect if message is Indonesian or English based on keywords."""
+    id_words = r"\b(besok|lusa|hari\s+ini|nanti|jam|menit|detik|senin|selasa|rabu|kamis|jumat|sabtu|minggu|depan|lagi|sekarang|ini|saya|saya|tolong|ingatkan|beli|makan|pergi|kerja)\b"
+    en_words = r"\b(tomorrow|today|now|next|in\s+\d+|minutes?|hours?|seconds?|monday|tuesday|wednesday|thursday|friday|saturday|sunday|remind|me|buy|go|work|meeting|call)\b"
+    
+    id_count = len(re.findall(id_words, msg.lower()))
+    en_count = len(re.findall(en_words, msg.lower()))
+    
+    if id_count > en_count:
+        return "id"
+    return "en"
