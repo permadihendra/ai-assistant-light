@@ -151,18 +151,24 @@ class ReminderPlugin(Plugin):
         if not rows:
             return "📭 No active reminders."
 
-        lines = ["📋 *Your Reminders*"]
+        sep = "─" * 35
+        blocks = []
         for r in rows:
             dt = datetime.fromisoformat(r["remind_at"])
             local = dt.astimezone(WIB)
-            time_short = local.strftime("%a, %d %b %H:%M")
-            preview = r["text"][:45] + "..." if len(r["text"]) > 45 else r["text"]
-            lines.append(f"  `#{r['id']:<3}` {preview:<47} {time_short}")
+            time_str = local.strftime("%a, %d %b %Y at %H:%M")
+            preview = r["text"]
+            blocks.append(
+                f"#{r['id']} {preview}\n"
+                f"   ⏰ {time_str}\n"
+                f"   🔔 10min before  ─  /note {r['id']}  ─  /cancel {r['id']}"
+            )
 
-        lines.append("")
-        lines.append("🔔 10min before each")
-        lines.append("`/cancel <id>` to cancel  |  `/note <id>` for source")
-        return "\n".join(lines)
+        header = "📋 *Your Reminders*"
+        body = f"\n{sep}\n".join(blocks)
+        footer = "\n🔔 Each alerts 10min before"
+
+        return f"{header}\n{body}{footer}"
 
     # ── CANCEL ────────────────────────────────────────────────────
 
