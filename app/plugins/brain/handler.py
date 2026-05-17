@@ -126,7 +126,8 @@ class BrainPlugin(Plugin):
             except json.JSONDecodeError:
                 pass
 
-        return [{"action": "chat", "text": text[:500]}]
+        # All parsing failed — return None so caller shows acknowledgment
+        return None
 
     # ── Validation + Routing ─────────────────────────────────────────
 
