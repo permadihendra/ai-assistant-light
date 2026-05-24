@@ -108,7 +108,9 @@ cleanup() {
 
     info "Bye! 👋"
 }
-trap cleanup EXIT SIGTERM SIGINT
+# TRAP: cleanup on SIGTERM/SIGINT, then exit to prevent EXIT trap re-fire
+trap 'cleanup; exit' SIGTERM SIGINT
+trap cleanup EXIT
 
 # ── Step 1: Start cloudflared tunnel ─────────────────────
 info "Step 1/5 — Starting cloudflared tunnel..."
@@ -125,9 +127,11 @@ TUNNEL_URL=""
 for i in $(seq 1 "${TUNNEL_TIMEOUT}"); do
     sleep 1
     # Try grep with Perl regex first, fall back to basic grep
-    TUNNEL_URL=$(grep -oP 'https://[a-zA-Z0-9\-]+\.trycloudflare\.com' "${LOG_FILE}" 2>/dev/null | head -1)
+    # NOTE: || true is REQUIRED here — grep exits 1 when no match,
+    # and with set -e + set -o pipefail the whole script would exit.
+    TUNNEL_URL=$(grep -oP 'https://[a-zA-Z0-9\-]+\.trycloudflare\.com' "${LOG_FILE}" 2>/dev/null | head -1) || true
     if [ -z "${TUNNEL_URL}" ]; then
-        TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9\-]+\.trycloudflare\.com' "${LOG_FILE}" 2>/dev/null | head -1)
+        TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9\-]+\.trycloudflare\.com' "${LOG_FILE}" 2>/dev/null | head -1) || true
     fi
     if [ -n "${TUNNEL_URL}" ]; then
         break
