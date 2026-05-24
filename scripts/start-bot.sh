@@ -72,9 +72,21 @@ if [ "${ENV_PERMS}" != "600" ]; then
 fi
 
 # ── Load environment ─────────────────────────────────────
-set -a
-source .env
-set +a
+# Safe .env parser — handles spaces, quotes, special chars
+# Doesn't use `source` because unquoted values break bash
+while IFS= read -r line; do
+    # Skip comments and empty lines
+    [[ -z "$line" || "$line" =~ ^# ]] && continue
+    # Split on first =
+    key="${line%%=*}"
+    value="${line#*=}"
+    # Strip surrounding quotes if present
+    value="${value%\"}"
+    value="${value#\"}"
+    value="${value%\'}"
+    value="${value#\'}"
+    export "$key=$value"
+done < .env
 
 # ── Cleanup handler ──────────────────────────────────────
 cleanup() {
