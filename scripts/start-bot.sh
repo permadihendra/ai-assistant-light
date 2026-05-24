@@ -168,6 +168,12 @@ if grep -q '^TELEGRAM_WEBHOOK_URL=' .env; then
 else
     echo "TELEGRAM_WEBHOOK_URL=${TUNNEL_URL%/}" >> .env
 fi
+
+# Re-export: Python's pydantic-settings checks env vars BEFORE .env file.
+# Without this re-export, the stale env var (loaded earlier) would override
+# the updated .env and register the webhook with the OLD tunnel URL. ❌
+export TELEGRAM_WEBHOOK_URL="${TUNNEL_URL%/}"
+
 info "  ✅ .env updated"
 
 # ── Step 4: Register webhook ─────────────────────────────

@@ -57,7 +57,9 @@ def _parse_time(text: str) -> datetime | None:
         elif kind == "hours":
             return now + timedelta(hours=int(match.group(1)))
         elif kind == "tomorrow":
-            h, m = int(match.group(1)), int(match.group(2))
+            # Default to 09:00 WIB if hour not specified (e.g. 'besok' without time)
+            h = int(match.group(1)) if match.group(1) else 9
+            m = int(match.group(2)) if match.group(2) else 0
             dt = datetime.now(WIB).replace(hour=h, minute=m, second=0, microsecond=0)
             dt += timedelta(days=1)
             return dt.astimezone(timezone.utc)
