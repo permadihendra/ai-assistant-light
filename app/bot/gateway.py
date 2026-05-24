@@ -144,7 +144,7 @@ async def webhook(request: Request) -> Response:
     try:
         db = await get_db()
         await db.execute(
-            "INSERT INTO messages (chat_id, user_id, username, text) VALUES (?, ?, ?, ?)",
+            "INSERT INTO messages (chat_id, user_id, username, text, type) VALUES (?, ?, ?, ?, 'user')",
             (message.chat_id, message.from_user.id if message.from_user else 0,
              message.from_user.username if message.from_user else None,
              message.text),
@@ -167,6 +167,18 @@ async def webhook(request: Request) -> Response:
         else:
             # Thinking message failed to send, send reply fresh
             await _send_telegram_message(message.chat_id, reply)
+
+        # Persist bot response so context retriever has BOTH sides
+        try:
+            db2 = await get_db()
+            await db2.execute(
+                "INSERT INTO messages (chat_id, user_id, username, text, type) "
+                "VALUES (?, 0, 'bot', ?, 'bot')",
+                (message.chat_id, reply[:1500]),  # cap length
+            )
+            await db2.commit()
+        except Exception as e:
+            logger.warning("Failed to persist bot reply: %s", e)
     else:
         # No reply — update thinking message to something neutral
         if thinking_msg and thinking_msg.get("message_id"):
