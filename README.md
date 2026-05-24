@@ -246,6 +246,46 @@ uv run python -m app.bot.setup_webhook
 
 ---
 
+## Quick Tunnel: Auto Bot Launcher (`scripts/start-bot.sh`)
+
+For development or when you don't have a permanent domain, use the all-in-one launcher:
+
+```bash
+./scripts/start-bot.sh
+```
+
+This single script does EVERYTHING automatically:
+
+1. Starts cloudflared Quick Tunnel (background)
+2. Waits for the tunnel URL (up to 30s)
+3. Updates `TELEGRAM_WEBHOOK_URL` in `.env`
+4. Registers the webhook with Telegram
+5. Launches uvicorn (foreground)
+6. On Ctrl+C → cleans up tunnel + exits cleanly
+
+```
+[INFO]  Step 1/5 — Starting cloudflared tunnel...
+[INFO]    cloudflared PID: 12345
+[INFO]  Step 2/5 — Waiting for tunnel URL (timeout: 30s)...
+[INFO]    ✅ Tunnel URL: https://abc123.trycloudflare.com
+[INFO]  Step 3/5 — Updating TELEGRAM_WEBHOOK_URL in .env...
+[INFO]    ✅ .env updated
+[INFO]  Step 4/5 — Registering webhook with Telegram...
+[INFO]    ✅ Webhook registered
+[INFO]  Step 5/5 — Starting uvicorn on port 8123...
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Bot is LIVE! 🚀
+  Tunnel: https://abc123.trycloudflare.com
+  Press Ctrl+C to stop.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+> ⚠️ **Quick Tunnel URL changes every restart.** The script handles this automatically by re-registering the webhook each time.
+> 💡 For permanent deployment, set up a named tunnel (Option B above) and use `sudo systemctl restart ai-assistant` instead.
+
+---
+
 ## Deploy to Raspberry Pi 3B
 
 ```bash

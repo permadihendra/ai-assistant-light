@@ -1,0 +1,170 @@
+#!/bin/bash
+set -euo pipefail
+
+# ──────────────────────────────────────────────────────────
+# start-bot.sh — Quick Tunnel Bot Launcher
+#
+# Automates:
+#   1. Start cloudflared quick tunnel (background)
+#   2. Parse tunnel URL from logs
+#   3. Update .env with new webhook URL
+#   4. Register webhook with Telegram API
+#   5. Launch uvicorn (foreground)
+#
+# On shutdown (SIGTERM/SIGINT/EXIT):
+#   → Kill cloudflared tunnel
+#   → Clean exit
+#
+# Usage:
+#   ./scripts/start-bot.sh
+#
+# For production:
+#   sudo systemctl restart ai-assistant   (uses deploy/ai-assistant.service)
+# ──────────────────────────────────────────────────────────
+
+# ── Paths ────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+LOG_FILE="${PROJECT_DIR}/data/cloudflared.log"
+TUNNEL_TIMEOUT=30          # seconds to wait for tunnel URL
+PORT=8123
+
+cd "${PROJECT_DIR}"
+
+# ── Colors ────────────────────────────────────────────────
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+error() { echo -e "${RED}[ERROR]${NC} $*"; }
+
+# ── Pre-flight checks ────────────────────────────────────
+command -v cloudflared >/dev/null 2>&1 || {
+    error "cloudflared not found. Install it first:"
+    echo ""
+    echo "  # Raspberry Pi (ARM):"
+    echo "  wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm"
+    echo "  sudo mv cloudflared-linux-arm /usr/local/bin/cloudflared"
+    echo "  sudo chmod +x /usr/local/bin/cloudflared"
+    echo ""
+    echo "  # Or via package manager:"
+    echo "  sudo apt install cloudflared"
+    echo ""
+    exit 1
+}
+
+command -v uv >/dev/null 2>&1 || {
+    error "uv not found. Install: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    exit 1
+}
+
+[ -f .env ] || {
+    error ".env file not found."
+    echo "  cp .env.example .env"
+    echo "  # Then fill in your tokens"
+    exit 1
+}
+
+# Warn if .env permissions are not 600
+ENV_PERMS=$(stat -c "%a" .env 2>/dev/null || stat -f "%p" .env 2>/dev/null)
+if [ "${ENV_PERMS}" != "600" ]; then
+    warn ".env permissions are ${ENV_PERMS} (should be 600)"
+    warn "  Run: chmod 600 .env"
+fi
+
+# ── Load environment ─────────────────────────────────────
+set -a
+source .env
+set +a
+
+# ── Cleanup handler ──────────────────────────────────────
+cleanup() {
+    echo ""
+    info "Shutting down..."
+
+    # Kill cloudflared tunnel
+    if [ -n "${CLOUDFLARED_PID:-}" ]; then
+        kill "${CLOUDFLARED_PID}" 2>/dev/null || true
+        wait "${CLOUDFLARED_PID}" 2>/dev/null || true
+        info "cloudflared stopped"
+    fi
+
+    # Kill uvicorn if running in background (shouldn't happen, but safe)
+    if [ -n "${UVICORN_PID:-}" ]; then
+        kill "${UVICORN_PID}" 2>/dev/null || true
+        wait "${UVICORN_PID}" 2>/dev/null || true
+    fi
+
+    info "Bye! 👋"
+}
+trap cleanup EXIT SIGTERM SIGINT
+
+# ── Step 1: Start cloudflared tunnel ─────────────────────
+info "Step 1/5 — Starting cloudflared tunnel..."
+mkdir -p "$(dirname "${LOG_FILE}")"
+rm -f "${LOG_FILE}"
+
+cloudflared tunnel --url "http://localhost:${PORT}" >"${LOG_FILE}" 2>&1 &
+CLOUDFLARED_PID=$!
+info "  cloudflared PID: ${CLOUDFLARED_PID}"
+
+# ── Step 2: Wait for tunnel URL ──────────────────────────
+info "Step 2/5 — Waiting for tunnel URL (timeout: ${TUNNEL_TIMEOUT}s)..."
+TUNNEL_URL=""
+for i in $(seq 1 "${TUNNEL_TIMEOUT}"); do
+    sleep 1
+    TUNNEL_URL=$(grep -oP 'https://[a-zA-Z0-9\-]+\.trycloudflare\.com' "${LOG_FILE}" 2>/dev/null | head -1)
+    if [ -n "${TUNNEL_URL}" ]; then
+        break
+    fi
+done
+
+if [ -z "${TUNNEL_URL}" ]; then
+    error "Tunnel did not start within ${TUNNEL_TIMEOUT}s."
+    error "Check logs: tail -30 ${LOG_FILE}"
+    error "Common issues:"
+    error "  • No internet connection"
+    error "  • cloudflared needs update"
+    error "  • Port ${PORT} already in use"
+    exit 1
+fi
+
+info "  ✅ Tunnel URL: ${TUNNEL_URL}"
+
+# ── Step 3: Update .env ──────────────────────────────────
+info "Step 3/5 — Updating TELEGRAM_WEBHOOK_URL in .env..."
+
+if grep -q '^TELEGRAM_WEBHOOK_URL=' .env; then
+    sed -i "s|^TELEGRAM_WEBHOOK_URL=.*|TELEGRAM_WEBHOOK_URL=${TUNNEL_URL%/}|" .env
+else
+    echo "TELEGRAM_WEBHOOK_URL=${TUNNEL_URL%/}" >> .env
+fi
+info "  ✅ .env updated"
+
+# ── Step 4: Register webhook ─────────────────────────────
+info "Step 4/5 — Registering webhook with Telegram..."
+if uv run python -m app.bot.setup_webhook; then
+    info "  ✅ Webhook registered: ${TUNNEL_URL}/webhook"
+else
+    error "❌ Webhook registration failed."
+    error "   Check TELEGRAM_TOKEN in .env"
+    exit 1
+fi
+
+# ── Step 5: Start bot ────────────────────────────────────
+info "Step 5/5 — Starting uvicorn on port ${PORT}..."
+echo ""
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}  Bot is LIVE! 🚀${NC}"
+echo -e "${GREEN}  Tunnel: ${TUNNEL_URL}${NC}"
+echo -e "${GREEN}  Webhook: ${TUNNEL_URL}/webhook${NC}"
+echo -e "${GREEN}  Press Ctrl+C to stop.${NC}"
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+# Run uvicorn in foreground — trap will handle cleanup on exit
+# shellcheck disable=SC2086
+uv run uvicorn app.main:app \
+    --host 127.0.0.1 \
+    --port "${PORT}" \
+    --workers 1 \
+    --no-access-log
