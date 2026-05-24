@@ -30,6 +30,15 @@ async def dispatch(update) -> str | None:
     text = message.text.strip()
     chat_id = message.chat_id
 
+    # ── Handle Telegram reply feature ─────────────────────────
+    # If user is replying to a specific message, inject it as context
+    # so the LLM knows what message the user is referring to.
+    reply_to = message.reply_to_message
+    if reply_to and reply_to.text:
+        reply_preview = reply_to.text[:200]
+        reply_user = reply_to.from_user.first_name if reply_to.from_user else "User"
+        text = f'[Replying to {reply_user}: "{reply_preview}"]\n{text}'
+
     # ── 1. Check pending state — only if message IS a reply ──
     state = pending_state.get(chat_id)
     if state and _is_pending_reply(text):
