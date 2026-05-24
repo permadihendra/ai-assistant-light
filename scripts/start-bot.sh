@@ -26,7 +26,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LOG_FILE="${PROJECT_DIR}/data/cloudflared.log"
-TUNNEL_TIMEOUT=30          # seconds to wait for tunnel URL
+TUNNEL_TIMEOUT=60          # seconds to wait for tunnel URL
 PORT=8123
 
 cd "${PROJECT_DIR}"
@@ -124,19 +124,33 @@ info "Step 2/5 — Waiting for tunnel URL (timeout: ${TUNNEL_TIMEOUT}s)..."
 TUNNEL_URL=""
 for i in $(seq 1 "${TUNNEL_TIMEOUT}"); do
     sleep 1
+    # Try grep with Perl regex first, fall back to basic grep
     TUNNEL_URL=$(grep -oP 'https://[a-zA-Z0-9\-]+\.trycloudflare\.com' "${LOG_FILE}" 2>/dev/null | head -1)
+    if [ -z "${TUNNEL_URL}" ]; then
+        TUNNEL_URL=$(grep -oE 'https://[a-zA-Z0-9\-]+\.trycloudflare\.com' "${LOG_FILE}" 2>/dev/null | head -1)
+    fi
     if [ -n "${TUNNEL_URL}" ]; then
         break
+    fi
+    # Show progress every 5 seconds
+    if [ $((i % 5)) -eq 0 ]; then
+        info "  still waiting... (${i}s/${TUNNEL_TIMEOUT}s)"
     fi
 done
 
 if [ -z "${TUNNEL_URL}" ]; then
     error "Tunnel did not start within ${TUNNEL_TIMEOUT}s."
-    error "Check logs: tail -30 ${LOG_FILE}"
-    error "Common issues:"
-    error "  • No internet connection"
+    echo ""
+    error "📄 Last 20 lines of cloudflared log:"
+    tail -20 "${LOG_FILE}" 2>/dev/null | while IFS= read -r line; do
+        echo "    $line"
+    done
+    echo ""
+    error "Common causes:"
+    error "  • Slow internet — try increasing TUNNEL_TIMEOUT"
     error "  • cloudflared needs update"
     error "  • Port ${PORT} already in use"
+    error "  • No internet connection"
     exit 1
 fi
 
