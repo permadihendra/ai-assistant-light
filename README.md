@@ -310,21 +310,43 @@ This single script does EVERYTHING automatically:
 
 ## Deploy to Raspberry Pi 3B
 
+### Mode A: Production (Named Tunnel + systemd)
+
+Requires a domain with Cloudflare DNS. Tunnel runs as separate systemd service.
+
 ```bash
+# 1. Install dependencies
 curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone <repo> ai-assistant-light
 cd ai-assistant-light
 cp .env.example .env && chmod 600 .env
 uv sync --no-dev
 mkdir -p data
-uv run python -m app.bot.setup_webhook
 
+# 2. Set up Cloudflare Named Tunnel (permanent)
+# See: docs/cloudflare-tunnel.md  (one-time setup with config.yml)
+
+# 3. Install bot service
 sudo cp deploy/ai-assistant.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now ai-assistant
 
-# If using GPIO relay for PC control:
-sudo usermod -a -G gpio pi   # grant GPIO access to the pi user
+# 4. Register webhook (one-time, after tunnel is live)
+uv run python -m app.bot.setup_webhook
+
+# 5. If using GPIO relay for PC control:
+sudo usermod -a -G gpio pi
+```
+
+### Mode B: Quick Tunnel (dev/testing)
+
+No domain needed. All-in-one script handles everything.
+
+```bash
+cd ~/ai-assistant-light
+git pull
+./scripts/start-bot.sh
+# Handles: tunnel → URL → webhook → notification → uvicorn
 ```
 
 ---
