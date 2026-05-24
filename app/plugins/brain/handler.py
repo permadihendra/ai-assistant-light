@@ -10,6 +10,7 @@ from app.llm.prompts import BRAIN_SYSTEM_PROMPT
 from app.llm.router import get_provider
 from app.plugins.base import BotContext, Plugin, PluginRegistry
 from app.plugins.brain import state as pending_state
+from app.plugins.brain.context import retrieve_context
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,6 @@ class BrainPlugin(Plugin):
         self._original_ctx = ctx
 
         # Skip pure separators (===, ---, ***, ___)
-        import re
         if re.match(r"^[=\-*_#~]{3,}$", ctx.message_text.strip()):
             return None
 
@@ -61,15 +61,24 @@ class BrainPlugin(Plugin):
             return None
 
         try:
+            # Retrieve conversation context (recent messages + FTS5 search)
+            context = await retrieve_context(ctx.chat_id, ctx.message_text)
+
+            # Build messages with context
+            messages = [LLMMessage(role="system", content=BRAIN_SYSTEM_PROMPT)]
+            if context:
+                messages.append(LLMMessage(
+                    role="system",
+                    content=f"Conversation context:\n{context}",
+                ))
+            messages.append(LLMMessage(role="user", content=ctx.message_text))
+
             # Dynamic token budget: longer input → more output room
             input_len = len(ctx.message_text)
             output_budget = max(1024, min(8192, input_len * 2))
 
             response = await provider.chat(
-                messages=[
-                    LLMMessage(role="system", content=BRAIN_SYSTEM_PROMPT),
-                    LLMMessage(role="user", content=ctx.message_text),
-                ],
+                messages=messages,
                 max_tokens=output_budget,
                 timeout=30.0,
             )

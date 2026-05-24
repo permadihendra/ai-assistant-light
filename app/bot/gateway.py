@@ -8,15 +8,17 @@ from telegram import Update
 from app.bot.dispatcher import dispatch, handle_callback
 from app.bot.middlewares import check_rate_limit
 from app.config import settings
+from app.database import get_db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-async def _send_telegram_message(chat_id: int, text: str, keyboard=None) -> None:
+async def _send_telegram_message(chat_id: int, text: str, keyboard=None) -> dict | None:
     """Send a message via Telegram Bot API using raw httpx.
     Falls back to plain text if markdown causes 400 error.
+    Returns response JSON (contains message_id) or None on failure.
     """
     import httpx
 
@@ -36,8 +38,11 @@ async def _send_telegram_message(chat_id: int, text: str, keyboard=None) -> None
             logger.warning("Markdown send failed, retrying as plain text")
             payload.pop("parse_mode", None)
             resp = await client.post(url, json=payload)
-            if resp.status_code != 200:
-                logger.error("Plain text send also failed: %s", resp.text)
+        if resp.status_code == 200:
+            return resp.json().get("result")
+        else:
+            logger.error("Send message failed: %s", resp.text)
+            return None
 
 
 async def _edit_message_text(chat_id: int, message_id: int, text: str, keyboard=None) -> None:
@@ -135,13 +140,41 @@ async def webhook(request: Request) -> Response:
         )
         return Response(status_code=200)
 
+    # Persist incoming message for context retrieval + summarization
+    try:
+        db = await get_db()
+        await db.execute(
+            "INSERT INTO messages (chat_id, user_id, username, text) VALUES (?, ?, ?, ?)",
+            (message.chat_id, message.from_user.id if message.from_user else 0,
+             message.from_user.username if message.from_user else None,
+             message.text),
+        )
+        await db.commit()
+    except Exception as e:
+        logger.warning("Failed to persist message: %s", e)
+
+    # Send thinking indicator first, then process
+    thinking_msg = await _send_telegram_message(
+        message.chat_id, "⏳ Wait, I'm thinking…"
+    )
+
     reply = await dispatch(update)
     if reply:
-        try:
+        if thinking_msg and thinking_msg.get("message_id"):
+            await _edit_message_text(
+                message.chat_id, thinking_msg["message_id"], reply
+            )
+        else:
+            # Thinking message failed to send, send reply fresh
             await _send_telegram_message(message.chat_id, reply)
-            logger.info("Replied to %s: %.200s", message.chat_id, reply)
-        except Exception as e:
-            logger.error("Failed to send Telegram message: %s", e)
+    else:
+        # No reply — update thinking message to something neutral
+        if thinking_msg and thinking_msg.get("message_id"):
+            await _edit_message_text(
+                message.chat_id,
+                thinking_msg["message_id"],
+                "🤔",
+            )
 
     return Response(status_code=200)
 
