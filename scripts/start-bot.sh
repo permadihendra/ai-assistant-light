@@ -113,7 +113,7 @@ trap 'cleanup; exit' SIGTERM SIGINT
 trap cleanup EXIT
 
 # ── Step 1: Start cloudflared tunnel ─────────────────────
-info "Step 1/5 — Starting cloudflared tunnel..."
+info "Step 1/7 — Starting cloudflared tunnel..."
 mkdir -p "$(dirname "${LOG_FILE}")"
 rm -f "${LOG_FILE}"
 
@@ -122,7 +122,7 @@ CLOUDFLARED_PID=$!
 info "  cloudflared PID: ${CLOUDFLARED_PID}"
 
 # ── Step 2: Wait for tunnel URL ──────────────────────────
-info "Step 2/5 — Waiting for tunnel URL (timeout: ${TUNNEL_TIMEOUT}s)..."
+info "Step 2/7 — Waiting for tunnel URL (timeout: ${TUNNEL_TIMEOUT}s)..."
 TUNNEL_URL=""
 for i in $(seq 1 "${TUNNEL_TIMEOUT}"); do
     sleep 1
@@ -161,7 +161,7 @@ fi
 info "  ✅ Tunnel URL: ${TUNNEL_URL}"
 
 # ── Step 3: Update .env ──────────────────────────────────
-info "Step 3/5 — Updating TELEGRAM_WEBHOOK_URL in .env..."
+info "Step 3/7 — Updating TELEGRAM_WEBHOOK_URL in .env..."
 
 if grep -q '^TELEGRAM_WEBHOOK_URL=' .env; then
     sed -i "s|^TELEGRAM_WEBHOOK_URL=.*|TELEGRAM_WEBHOOK_URL=${TUNNEL_URL%/}|" .env
@@ -176,18 +176,43 @@ export TELEGRAM_WEBHOOK_URL="${TUNNEL_URL%/}"
 
 info "  ✅ .env updated"
 
-# ── Step 4: Register webhook ─────────────────────────────
-info "Step 4/5 — Registering webhook with Telegram..."
+# ── Step 4: Wait for DNS + register webhook ─────────────
+info "Step 4/7 — Waiting for tunnel DNS propagation..."
+
+# Extract hostname from tunnel URL (strip https:// and trailing path)
+_tunnel_host="${TUNNEL_URL#https://}"
+_tunnel_host="${_tunnel_host%%/*}"
+
+_DNS_OK=false
+for i in $(seq 1 15); do
+    # Try host lookup (most common), fallback to getent, then ping -c
+    if host "${_tunnel_host}" >/dev/null 2>&1 || \
+       getent hosts "${_tunnel_host}" >/dev/null 2>&1; then
+        _DNS_OK=true
+        break
+    fi
+    sleep 2
+    if [ $((i % 3)) -eq 0 ]; then
+        info "  waiting for DNS... (${i} attempts)"
+    fi
+done
+
+if [ "${_DNS_OK}" = false ]; then
+    warn "  ⚠️ Tunnel hostname not resolving yet. Trying webhook registration anyway..."
+fi
+
+info "Step 5/7 — Registering webhook with Telegram..."
 if uv run python -m app.bot.setup_webhook; then
     info "  ✅ Webhook registered: ${TUNNEL_URL}/webhook"
 else
     error "❌ Webhook registration failed."
-    error "   Check TELEGRAM_TOKEN in .env"
+    error "   Tunnel hostname may not be reachable from Telegram servers."
+    error "   Try again in a few seconds, or use a permanent tunnel."
     exit 1
 fi
 
 # ── Step 5: Notify via Telegram ──────────────────────────
-info "Step 5/6 — Sending startup notification..."
+info "Step 6/7 — Sending startup notification..."
 _start_time="$(date '+%Y-%m-%d %H:%M:%S')"
 
 # Parse first chat_id from ALLOWED_CHAT_IDS (before first comma/space)
@@ -214,7 +239,7 @@ else
 fi
 
 # ── Step 6: Start bot ────────────────────────────────────
-info "Step 6/6 — Starting uvicorn on port ${PORT}..."
+info "Step 7/7 — Starting uvicorn on port ${PORT}..."
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}  Bot is LIVE! 🚀${NC}"
