@@ -42,7 +42,7 @@ ai-assistant-light/
 │   │   ├── prompts.py       # All system prompts (personality injected)
 │   │   └── providers/       # anthropic, openai, openrouter, gemini, opencode
 │   ├── scheduler/
-│   │   └── runner.py        # APScheduler AsyncIOScheduler — polls reminders every 30s
+│   │   └── runner.py        # APScheduler AsyncIOScheduler — polls reminders every 5min
 │   └── models/              # Placeholder (models stored in SQLite)
 ├── migrations/               # Numbered SQL migration files (001–005)
 ├── scripts/                  # Sandboxed user scripts
