@@ -122,37 +122,127 @@ mkdir -p data
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8123
 ```
 
-### 4. Expose with Cloudflare Tunnel (Option A — Quick)
+### 4. Expose with Cloudflare Tunnel
+
+Telegram needs a public HTTPS URL to send updates. Cloudflare Tunnel is the easiest way.
+
+#### Option A — Quick Tunnel (for testing)
+
+No account needed. Runs in foreground:
 
 ```bash
+# On your Pi or dev machine:
 cloudflared tunnel --url http://localhost:8123
-# Copy the https://*.trycloudflare.com URL
 ```
 
-Update `.env` with the URL, then register the webhook:
+You'll see:
+```
+https://<random>.trycloudflare.com → http://localhost:8123
+```
+
+Copy that URL, set it in `.env`, then register the webhook:
 
 ```bash
+# In .env:
+TELEGRAM_WEBHOOK_URL=https://<random>.trycloudflare.com
+
+# Register:
 uv run python -m app.bot.setup_webhook
 ```
 
-### 5. Or Expose with Cloudflare Tunnel (Option B — Permanent)
+> ⚠️ Quick Tunnel URL changes every restart — only for development.
 
-Requires a domain with Cloudflare DNS:
+---
+
+#### Option B — Permanent Tunnel (production)
+
+Requires a domain with DNS managed by Cloudflare.
+
+**Step 1 — Install cloudflared**
+
+```bash
+# Raspberry Pi (ARM):
+wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm
+sudo mv cloudflared-linux-arm /usr/local/bin/cloudflared
+sudo chmod +x /usr/local/bin/cloudflared
+
+# Or via package manager:
+# sudo apt install cloudflared
+```
+
+**Step 2 — Authenticate**
 
 ```bash
 cloudflared tunnel login
-cloudflared tunnel create ai-assistant
-cloudflared tunnel route dns ai-assistant bot.yourdomain.com
-cloudflared tunnel run ai-assistant
+# Opens a browser — log in to Cloudflare and authorize.
 ```
 
-### 6. Or Expose with ngrok (Dev)
+**Step 3 — Create the tunnel**
 
 ```bash
-ngrok http 8123
-# Put https://*.ngrok-free.app in .env, then:
+cloudflared tunnel create ai-assistant
+# Saves credentials JSON to ~/.cloudflared/<id>.json
+```
+
+**Step 4 — Create config file**
+
+Create `~/.cloudflared/config.yml`:
+
+```yaml
+tunnel: <tunnel-id-from-step-3>
+credentials-file: /home/pi/.cloudflared/<tunnel-id>.json
+
+ingress:
+  - hostname: bot.yourdomain.com
+    service: http://localhost:8123
+  - service: http_status:404
+```
+
+**Step 5 — Route DNS**
+
+```bash
+cloudflared tunnel route dns ai-assistant bot.yourdomain.com
+```
+
+**Step 6 — Run as systemd service**
+
+```bash
+sudo cloudflared service install
+sudo systemctl start cloudflared
+sudo systemctl enable cloudflared
+```
+
+**Step 7 — Verify & register webhook**
+
+```bash
+# Tunnel is live → set webhook URL in .env:
+TELEGRAM_WEBHOOK_URL=https://bot.yourdomain.com
+
+# Register:
 uv run python -m app.bot.setup_webhook
 ```
+
+> 💡 To check tunnel status: `cloudflared tunnel list` & `cloudflared tunnel info ai-assistant`
+
+---
+
+### 5. Or Expose with ngrok (Dev)
+
+```bash
+# Install: https://ngrok.com/download
+ngrok http 8123
+# Copy the https://*.ngrok-free.app URL
+```
+
+```bash
+# In .env:
+TELEGRAM_WEBHOOK_URL=https://<your-ngrok-subdomain>.ngrok-free.app
+
+# Register:
+uv run python -m app.bot.setup_webhook
+```
+
+> ⚠️ ngrok free tier gives a random URL each restart. Upgrade for fixed subdomains.
 
 ---
 
