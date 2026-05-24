@@ -119,13 +119,13 @@ chmod 600 .env
 ```bash
 uv sync --no-dev
 mkdir -p data
-uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8123
 ```
 
 ### 4. Expose with Cloudflare Tunnel (Option A — Quick)
 
 ```bash
-cloudflared tunnel --url http://localhost:8000
+cloudflared tunnel --url http://localhost:8123
 # Copy the https://*.trycloudflare.com URL
 ```
 
@@ -149,7 +149,7 @@ cloudflared tunnel run ai-assistant
 ### 6. Or Expose with ngrok (Dev)
 
 ```bash
-ngrok http 8000
+ngrok http 8123
 # Put https://*.ngrok-free.app in .env, then:
 uv run python -m app.bot.setup_webhook
 ```

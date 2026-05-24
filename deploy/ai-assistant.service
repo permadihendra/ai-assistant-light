@@ -7,7 +7,7 @@ User=pi
 WorkingDirectory=/home/pi/ai-assistant-light
 EnvironmentFile=/home/pi/ai-assistant-light/.env
 ExecStart=/home/pi/ai-assistant-light/.venv/bin/uvicorn app.main:app \
-    --host 127.0.0.1 --port 8000 --workers 1 --no-access-log
+    --host 127.0.0.1 --port 8123 --workers 1 --no-access-log
 Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
