@@ -9,34 +9,82 @@
 
 ## Features
 
-| Plugin | Commands | Description |
+| Plugin | Commands / Triggers | Description |
 |---|---|---|
 | **System** | `/start`, `/help`, `/ping`, `/status` | Basic bot commands |
-| **Web Search** | `/search <query>` | Brave Search API with optional LLM synthesis |
-| **Reminder** | `/remind <time> <msg>` | Set reminders (relative, tomorrow, date formats) |
-| **Reminder** | `/reminders` | List active reminders |
+| **Brain** _(AI Router)_ | Any free text | Understands language → routes to right plugin automatically |
+| **Web Search** | `/search <query>` or _"search for ..."_ | DuckDuckGo search (free, no API key) with optional LLM synthesis |
+| **Reminder** | `/remind <time> <msg>` or _"remind me..."_ | Set reminders with bilingual time parser (ENG/ID) |
+| **Reminder** | `/reminders` | List active reminders with alert countdown |
 | **Reminder** | `/cancel <id>` | Cancel a reminder by ID |
-| **Summarizer** | `/summarize` | Summarize recent group chat messages |
+| **Notes** | `/notes`, `/note <id>` | Save reference info; also view reminder source messages |
+| **Summarizer** | `/summarize` | Summarize recent group chat messages via LLM |
 | **Summarizer** | `/lastsummary` | Retrieve last saved summary |
-| **Script Runner** | `/run <script>` | Execute sandboxed scripts (admin-only) |
+| **Script Runner** | `/run <script>` | Execute sandboxed `.sh` / `.py` scripts (admin-only) |
+| **PC Control** | _"turn on/off my pc"_ | GPIO relay via Raspberry Pi (requires hardware) |
 
 ## LLM Providers
 
 6 cloud providers via raw `httpx` — no SDKs, no heavy dependencies.
 
-| Provider | Env Variable | Models |
+| Provider | Env Variable | Default Model |
 |---|---|---|
-| Anthropic | `ANTHROPIC_API_KEY` | Claude 3.5 Haiku, Sonnet, Opus |
-| OpenAI | `OPENAI_API_KEY` | GPT-4o-mini, o1-mini, etc. |
+| Anthropic | `ANTHROPIC_API_KEY` | Claude 3.5 Haiku |
+| OpenAI | `OPENAI_API_KEY` | GPT-4o-mini |
 | OpenRouter | `OPENROUTER_API_KEY` | 100+ models (many free) |
-| Google Gemini | `GEMINI_API_KEY` | Gemini 1.5 Flash, Pro |
+| **Google Gemini** ★ | `GEMINI_API_KEY` | **Gemini 2.5 Flash** (free tier, 1,500 req/day) |
 | OpenCode-Go | `OPENCODE_BASE_URL` | Self-hosted or cloud |
 | Zen | `ZEN_BASE_URL` | Self-hosted, key optional |
+
+> ★ **Recommended** — Gemini 2.5 Flash is the default. Free tier needs no credit card.
+
+## AI Personality 🎭
+
+Configurable via `AI_PERSONALITY` in `.env`. Injected into all LLM prompts:
+
+```
+AI_PERSONALITY=friendly, clear, concise, fun, light sarcasm
+```
+
+Default: friendly, clear, concise, light humor and emojis.
+
+## Smart Natural Language Understanding 🧠
+
+The **BrainPlugin** intercepts every free-text message and uses Gemini to understand intent:
+
+| You say… | Bot does… |
+|---|---|
+| "search for fastapi python" | 🔍 Web search results |
+| "remind me in 10m to check oven" | ✅ Reminder set with 10min alert |
+| "list my reminders" | 📋 Shows active reminders |
+| "turn on my pc" | 💻 GPIO relay → PC powers on |
+| "📅 SENIN, 1 JUNI 2026\n09:00 - Briefing..." | 📅 Extracts all events → multi-reminder preview |
+| "hello!" | 👋 Casual chat reply |
+
+**Bilingual** — detects Indonesian vs English automatically. Responds in the same language.
+
+**Confirmation flow** — before creating reminders/notes, bot shows a preview and asks "yes" or "no".
+
+**Inline time picker** — if time is vague (e.g. "tomorrow" without hour), bot shows interactive buttons to pick period → hour → minute.
 
 ## Web Search
 
 Default provider is **DuckDuckGo** — completely free, no API key needed.
 Optionally switch to Brave Search by adding `BRAVE_API_KEY` to `.env`.
+
+## PC Power Control 💻
+
+Requires a relay module on Raspberry Pi GPIO 17. Scripts at `scripts/raspberrypi/gpio-scripts/`:
+
+| Action | Script | GPIO Hold |
+|---|---|---|
+| Power ON | `relay-poweron-pc.py` | 0.2s |
+| Power OFF (force) | `relay-poweroff-pc.py` | 5s |
+| Status check | `ping-pc.sh` | Pings `PC_IP_ADDRESS` |
+
+Brain routes "turn on my pc" / "shutdown" / "is my pc on?" through ScriptRunnerPlugin (requires `ALLOWED_CHAT_IDS`).
+
+Set `PC_IP_ADDRESS` in `.env` to match your desktop's local IP.
 
 ---
 
@@ -46,6 +94,8 @@ Optionally switch to Brave Search by adding `BRAVE_API_KEY` to `.env`.
 
 Open Telegram, search for [@BotFather](https://t.me/BotFather), send `/newbot`, and save the token.
 
+> ⚠️ **Important:** Go to Bot Settings → Group Privacy → **Disable** privacy mode so the bot can see all group messages.
+
 ### 2. Clone & Configure
 
 ```bash
@@ -54,7 +104,14 @@ cd ai-assistant-light
 
 cp .env.example .env
 chmod 600 .env
-# Fill in at minimum: TELEGRAM_TOKEN, ALLOWED_CHAT_IDS, and one LLM provider key
+# Fill in at minimum:
+#   TELEGRAM_TOKEN      — from BotFather
+#   TELEGRAM_WEBHOOK_URL — your public URL (Cloudflare/ngrok)
+#   ALLOWED_CHAT_IDS    — your Telegram user ID (for /run)
+#   GEMINI_API_KEY      — from https://aistudio.google.com/apikey
+# Optionally:
+#   PC_IP_ADDRESS       — if using PC power control
+#   AI_PERSONALITY       — tone/personality for LLM responses
 ```
 
 ### 3. Install & Run
@@ -113,6 +170,9 @@ uv run python -m app.bot.setup_webhook
 sudo cp deploy/ai-assistant.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now ai-assistant
+
+# If using GPIO relay for PC control:
+sudo usermod -a -G gpio pi   # grant GPIO access to the pi user
 ```
 
 ---
@@ -137,24 +197,46 @@ Telegram ──► Cloudflare/ngrok ──► FastAPI webhook
                                        │
                                   ┌────┴────┐
                                   │ gateway │  ← secret token verification
-                                  │  .py    │  ← rate limiter
+                                  │  .py    │  ← rate limiter + callback queries
                                   └────┬────┘
                                        │
                                   ┌────┴────┐
-                                  │dispatch │  ← resolve command → plugin
+                                  │dispatch │  ← pending state → slash → brain
                                   └────┬────┘
                                        │
-              ┌────────────────────────┼────────────────────────┐
-              ▼                        ▼                        ▼
-        SystemPlugin           WebSearchPlugin          ReminderPlugin
-        /ping, /help           /search <query>         /remind, /reminders
-        /status, /start        + DuckDuckGo Search     + SQLite + APScheduler
-                                       │
-                              ┌────────┴────────┐
-                              │  LLM Provider   │  ← httpx, no SDKs
-                              │  (anthropic/    │
-                              │   openai/gemini)│
-                              └─────────────────┘
+              ┌───────────┬───────────┼───────────┬───────────┐
+              ▼           ▼           ▼           ▼           ▼
+        System     WebSearch   Reminder     Notes     ScriptRunner
+        /ping      /search     /remind      /notes     /run
+        /help      (or brain)  /reminders   /note <id> (admin only)
+        /status                /cancel      + brain     + PC control
+              │
+              ▼
+        ┌─────────────────┐
+        │   BrainPlugin   │  ← free text → Gemini → JSON actions[]
+        │  (AI Router)    │  → routes to correct plugin internally
+        └─────────────────┘
+              │
+        ┌─────┴─────┐
+        │   LLM     │  ← httpx, no SDKs
+        │  Provider  │  ← Gemini (default) / Anthropic / OpenAI / etc.
+        └───────────┘
+```
+
+**Message Flow (with BrainPlugin):**
+
+```
+You: "search for fastapi"
+  ↓
+BrainPlugin.handle()
+  ↓
+Gemini 2.5 Flash
+  ↓  structured JSON
+{"action": "search", "query": "fastapi"}
+  ↓
+_routes to → WebSearchPlugin.handle("/search fastapi")
+  ↓
+🔍 Search results → Telegram reply
 ```
 
 ---
@@ -164,10 +246,12 @@ Telegram ──► Cloudflare/ngrok ──► FastAPI webhook
 - **`.env` is NEVER committed** — in `.gitignore` + `chmod 600`
 - **Pre-commit `detect-secrets`** hook blocks accidental key commits
 - **Script runner** uses `create_subprocess_exec` — **no `shell=True`**
-- **Path traversal blocked** — script names validated with regex
+- **Path traversal blocked** — script names validated with regex (`[a-zA-Z0-9_-].sh` or `.py`)
 - **Parameterized SQL** — all queries use `?` placeholders, no injection
 - **Secrets never logged** — `settings.*` not serialized in responses or errors
 - **Webhook secret token** — constant-time comparison against `X-Telegram-Bot-Api-Secret-Token`
+- **`ALLOWED_CHAT_IDS`** — only authorized users can run scripts or trigger PC power control
+- **Pending state cleared on restart** — no stale data, user just re-sends message
 
 ---
 
@@ -215,12 +299,16 @@ Cloud API means zero local model RAM. The Pi 3B handles this comfortably.
 
 | Symptom | Likely Cause | Fix |
 |---|---|---|
-| Bot doesn't reply to commands | Command prefix mismatch | Already fixed — dispatcher strips `/` |
-| `pending_update_count` stays 0 but no reply | Missing `/help` handler | Add SystemPlugin to registration |
+| Bot doesn't reply | Webhook not set or wrong URL | Run `uv run python -m app.bot.setup_webhook` |
+| Bot ignores group messages | Privacy mode enabled in BotFather | Settings → Group Privacy → Disable |
 | Webhook returns 401 | Secret token mismatch | Check `TELEGRAM_WEBHOOK_SECRET` matches |
-| LLM calls fail | Provider not configured | Set API key in `.env` |
+| LLM calls fail | Provider not configured | Set `GEMINI_API_KEY` (or other provider key) in `.env` |
 | Script runner blocked | `ALLOWED_CHAT_IDS` not set | Add your Telegram user ID |
+| "No pending actions" when saying yes | Pending state timed out | Just send the original request again |
+| Brain doesn't route to search | Gemini returned "chat" action | Try explicit `/search <query>` as fallback |
+| PC control says script not found | Scripts path issue | Ensure `scripts/` exists relative to working directory |
 | Cloudflare Tunnel 500 error | Transient trycloudflare issue | Retry — usually works on second attempt |
+| Reminder says "time must be in future" | Time already passed today | Use tomorrow or a later time
 
 ---
 
