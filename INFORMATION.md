@@ -12,8 +12,9 @@
 - [x] Plugin system with PluginRegistry singleton
 - [x] Config via pydantic-settings + `.env`
 - [x] Rate limiter + auth guard
-- [x] APScheduler for background tasks
+- [x] APScheduler for background tasks (5min interval, 10× more efficient)
 - [x] Logging (no secrets ever logged)
+- [x] 8 database migrations (001–008)
 
 ### LLM Layer
 - [x] 6 cloud providers: Anthropic, OpenAI, OpenRouter, Gemini, OpenCode, Zen
@@ -60,13 +61,20 @@
 - [x] Path traversal protection
 - [x] Timeout + output cap
 
-### BrainPlugin (v3)
+### BrainPlugin (v4) — Context-Aware
 - [x] Non-command messages → Gemini → classified action → router
 - [x] `actions[]` array support — multiple actions per API call
 - [x] Validation gates: required params check before preview
 - [x] Auto-cancel pending when new content arrives
 - [x] Separator-only messages (`===`) ignored
 - [x] Raw JSON never leaks — acknowledgment fallback
+- [x] **Context retriever** (`context.py`) — 20 recent msgs + FTS5 search + notes
+- [x] **Noise filtering** — `/ping`, `/help`, `/start` excluded from context
+- [x] **User↔Bot pairing** — groups messages into exchange units
+- [x] **Thinking indicator** — sends "⏳ Wait, I'm thinking…" → edits with answer
+- [x] **FTS5 full-text search** — `messages_fts` + `notes_fts` (migration 007)
+- [x] **Message type tracking** — `type='user'` / `type='bot'` (migration 008)
+- [x] **Bot responses stored** — LLM sees FULL conversation, not half
 
 ### PC Power Control
 - [x] GPIO relay scripts (power on/off via `RPi.GPIO`)
@@ -99,7 +107,7 @@
 |---|---|---|
 | Recurring reminders | 🟡 Medium | "every monday 9am" |
 | Note tags/categories | 🟢 Low | `#work`, `#personal` |
-| Async acknowledgment ("processing...") | 🟡 Medium | Two-step reply: ack then results |
+| Recurring reminders | 🟡 Medium | "every monday 9am" |
 | RSS monitoring | 🟡 Medium | Cron-based feed checker |
 | Weather plugin | 🟢 Low | Free API needed |
 | Dashboard web UI | 🔴 Low | Maybe? Not the focus |

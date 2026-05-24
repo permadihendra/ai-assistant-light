@@ -48,6 +48,23 @@ AI_PERSONALITY=friendly, clear, concise, fun, light sarcasm
 
 Default: friendly, clear, concise, light humor and emojis.
 
+## Context-Aware Conversation Memory 🧠
+
+The bot remembers **both sides** of your conversation — your messages AND its responses.
+
+| Before | After |
+|---|---|
+| ❌ Bot only saw YOUR messages | ✅ Bot sees full user↔bot pairs |
+| ❌ `/ping`, `/help` crowded context | ✅ Noise filtered out automatically |
+| ❌ "tell me more" → LLM confused | ✅ LLM references full conversation history |
+| ❌ Bot sat silent while processing | ✅ "⏳ Wait, I'm thinking…" → edit with answer |
+
+**How it works:**
+1. Every message stored with `type='user'` or `type='bot'`
+2. Context retriever filters noise → pairs user↔bot → ranks by relevance
+3. FTS5 full-text search on past messages + notes for keyword matches
+4. Compressed to ~1500 tokens → injected into LLM prompt
+
 ## Smart Natural Language Understanding 🧠
 
 The **BrainPlugin** intercepts every free-text message and uses Gemini to understand intent:

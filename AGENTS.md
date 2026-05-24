@@ -34,6 +34,7 @@ ai-assistant-light/
 │   │   ├── script_runner/   # /run — sandboxed .sh/.py execution
 │   │   └── brain/           # AI router — free text → Gemini → JSON → route
 │   │       ├── handler.py   # Intent classification + action routing
+│   │       ├── context.py   # Context memory: recent msgs, FTS5 search, pairing
 │   │       ├── state.py     # In-memory pending state tracker
 │   │       └── picker.py    # Inline keyboard time picker
 │   ├── llm/
@@ -44,7 +45,7 @@ ai-assistant-light/
 │   ├── scheduler/
 │   │   └── runner.py        # APScheduler AsyncIOScheduler — polls reminders every 5min
 │   └── models/              # Placeholder (models stored in SQLite)
-├── migrations/               # Numbered SQL migration files (001–005)
+├── migrations/               # Numbered SQL migration files (001–008)
 ├── scripts/                  # Sandboxed user scripts
 │   ├── ping-pc.sh            # Ping-based PC status check
 │   └── raspberrypi/gpio-scripts/  # GPIO relay scripts for PC power control
@@ -84,13 +85,40 @@ class Plugin(ABC):
 4. Add commands to `.env.example`
 5. Write tests in `tests/test_plugins/`
 
-### BrainPlugin — Intent Router 🧠
+### BrainPlugin — Intent Router + Context Memory 🧠
 
-The `brain` plugin intercepts ALL non-command messages and routes them:
+The `brain` plugin intercepts ALL non-command messages and:
+1. **Retrieves conversation context** — 20 recent messages + FTS5 search + notes
+2. **Filters noise** — skips `/ping`, `/help`, `/start`, `hello` from context
+3. **Pairs user↔bot** — groups messages into user-bot exchange units
+4. **Calls Gemini** with compressed context + current message
+5. **Parses JSON** `actions[]` array → validates → preview → user confirms
+6. **Routes** to target plugin internally
 
-1. User sends free text → Gemini 2.5 Flash → structured JSON `actions[]` array
-2. Each action is validated (required params check) → preview → user confirms
-3. On confirmation, routes to the target plugin internally (rewrites `BotContext.message_text` as command)
+**Context-Aware Flow:**
+```
+User: "search about llamaindex"
+  ↓ stored as type='user'
+Bot: [search results]
+  ↓ stored as type='bot'
+User: "tell me more" (reply or followup)
+  ↓
+Context Retriever:
+  ├─ Pair #1: user "search..." + bot [results]
+  ├─ Pair #2: user "tell me more"  + bot [...]
+  └─ FTS5 search: "llamaindex" → match Pair #1
+  ↓ Compressed → inject ke prompt
+Gemini → jawab dengan konteks penuh ✅
+```
+
+**Thinking Indicator:**
+Bot sends `"⏳ Wait, I'm thinking…"` immediately, then edits with the real
+response after LLM finishes. No more awkward silence.
+
+**Context Modules:**
+- `app/plugins/brain/context.py` — ContextRetriever: retrieve, filter, pair, rank, compact
+- `app/plugins/brain/state.py` — in-memory pending state per chat (lost on restart — safe)
+- `app/plugins/brain/picker.py` — inline keyboard time picker (period → hour → minute)
 
 **Action-to-Plugin Mapping:**
 
