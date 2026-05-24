@@ -186,13 +186,41 @@ else
     exit 1
 fi
 
-# ── Step 5: Start bot ────────────────────────────────────
-info "Step 5/5 — Starting uvicorn on port ${PORT}..."
+# ── Step 5: Notify via Telegram ──────────────────────────
+info "Step 5/6 — Sending startup notification..."
+_start_time="$(date '+%Y-%m-%d %H:%M:%S')"
+
+# Parse first chat_id from ALLOWED_CHAT_IDS (before first comma/space)
+_first_chat="${ALLOWED_CHAT_IDS%%,*}"
+_first_chat="${_first_chat%% *}"
+if [ -n "${_first_chat}" ] && [ "${_first_chat}" != "0" ]; then
+    _nl=$'\n'
+    _notif_text="🤖 *Bot is LIVE!* 🚀${_nl}• Tunnel: ${TUNNEL_URL}${_nl}• Webhook: ${TUNNEL_URL}/webhook${_nl}• Started: ${_start_time}${_nl}${_nl}⚠️ Quick Tunnel — URL berubah setiap restart."
+
+    _tg_url="https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage"
+    _http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+        -X POST "${_tg_url}" \
+        --data-urlencode "chat_id=${_first_chat}" \
+        --data-urlencode "text=${_notif_text}" \
+        --data-urlencode "parse_mode=Markdown" 2>&1)
+
+    if [ "${_http_code}" = "200" ]; then
+        info "  ✅ Notification sent to chat ${_first_chat}"
+    else
+        warn "  ⚠️ Notif failed (HTTP ${_http_code}) — chat_id=${_first_chat} invalid?"
+    fi
+else
+    warn "  ⚠️ No ALLOWED_CHAT_IDS set — skipping Telegram notification"
+fi
+
+# ── Step 6: Start bot ────────────────────────────────────
+info "Step 6/6 — Starting uvicorn on port ${PORT}..."
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}  Bot is LIVE! 🚀${NC}"
 echo -e "${GREEN}  Tunnel: ${TUNNEL_URL}${NC}"
 echo -e "${GREEN}  Webhook: ${TUNNEL_URL}/webhook${NC}"
+echo -e "${GREEN}  Started: ${_start_time}${NC}"
 echo -e "${GREEN}  Press Ctrl+C to stop.${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
