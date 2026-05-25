@@ -1,7 +1,11 @@
-"""AgendaPlugin — daily agenda management via reminders table.
+"""AgendaPlugin — daily agenda view over reminders table.
 
-Stores agenda items as reminders with fired=0 = active, fired=1 = done.
-No separate table needed — reuses existing reminders infrastructure.
+Agenda is a UI/UX layer over the same reminders table.
+No separate storage. Reminders.fire = status:
+  - fired=0: reminder pending (not yet fired by scheduler)
+  - fired=1: reminder fired OR marked done by user
+
+Agenda shows ALL items for a date, with visual ☐/☑ markers.
 """
 
 import logging
@@ -32,11 +36,14 @@ def _agenda_date(dt: datetime) -> str:
 
 
 async def _query_agenda(chat_id: int, date_str: str) -> list[dict]:
-    """Get active (fired=0) agenda items for a specific date, ordered by time."""
+    """Get ALL agenda items for a date, including done ones.
+    
+    Returns items with fired status so caller can show ☐/☑.
+    """
     db = await get_db()
     cursor = await db.execute(
-        "SELECT id, text, remind_at FROM reminders "
-        "WHERE chat_id = ? AND fired = 0 AND DATE(remind_at) = ? "
+        "SELECT id, text, remind_at, fired FROM reminders "
+        "WHERE chat_id = ? AND DATE(remind_at) = ? "
         "ORDER BY remind_at ASC",
         (chat_id, date_str),
     )
@@ -50,30 +57,18 @@ async def _query_agenda(chat_id: int, date_str: str) -> list[dict]:
             "id": r["id"],
             "text": r["text"],
             "time": _fmt_time_short(dt),
+            "done": bool(r["fired"]),
         })
     return result
-
-
-async def _get_done_count(chat_id: int, date_str: str) -> int:
-    """Count done (fired=1) items for a specific date."""
-    db = await get_db()
-    cursor = await db.execute(
-        "SELECT COUNT(*) FROM reminders "
-        "WHERE chat_id = ? AND fired = 1 AND DATE(remind_at) = ?",
-        (chat_id, date_str),
-    )
-    row = await cursor.fetchone()
-    return row[0] if row else 0
 
 
 def _build_agenda_report(
     title: str,
     date_label: str,
     items: list[dict],
-    done_count: int = 0,
     is_today: bool = True,
 ) -> str:
-    """Build formatted agenda report."""
+    """Build formatted agenda report with ☐/☑ markers."""
     lines = [f"📋 *{title}*", _SEP, date_label, ""]
 
     if not items:
@@ -87,14 +82,22 @@ def _build_agenda_report(
         lines.append(_SEP)
         return "\n".join(lines)
 
+    active_count = 0
+    done_count = 0
     for item in items:
-        lines.append(f"  ☐ {item['time']} · {item['text']}")
+        if item.get("done"):
+            done_count += 1
+            lines.append(f"  ☑ {item['time']} · {item['text']} ✓")
+        else:
+            active_count += 1
+            lines.append(f"  ☐ {item['time']} · {item['text']}")
 
-    total = len(items) + done_count
+    total = active_count + done_count
     lines.append("")
     lines.append(_SEP)
-    lines.append(f"✅ {total} items · ☑ {done_count} done")
-    lines.append('Reply `done <id>` to check off')
+    lines.append(f"📌 {total} items · ☑ {done_count} done · ☐ {active_count} active")
+    if active_count > 0:
+        lines.append('Reply `done <id>` to check off')
 
     return "\n".join(lines)
 
@@ -199,12 +202,10 @@ async def get_today_agenda(chat_id: int) -> str | None:
     now = datetime.now(WIB)
     today_str = _agenda_date(now)
     items = await _query_agenda(chat_id, today_str)
-    done = await _get_done_count(chat_id, today_str)
     return _build_agenda_report(
         "Today's Agenda",
         _fmt_date(now),
         items,
-        done,
         is_today=True,
     )
 
@@ -215,23 +216,20 @@ async def get_tomorrow_agenda(chat_id: int) -> str | None:
     tomorrow = now + timedelta(days=1)
     tomorrow_str = _agenda_date(tomorrow)
     items = await _query_agenda(chat_id, tomorrow_str)
-    done = await _get_done_count(chat_id, tomorrow_str)
     return _build_agenda_report(
         "Tomorrow's Agenda",
         _fmt_date(tomorrow),
         items,
-        done,
         is_today=False,
     )
 
 
 async def get_all_agenda(chat_id: int) -> str | None:
-    """Get all future agenda grouped by date."""
+    """Get all future agenda (including done) grouped by date."""
     db = await get_db()
     cursor = await db.execute(
-        "SELECT id, text, remind_at FROM reminders "
-        "WHERE chat_id = ? AND fired = 0 "
-        "AND remind_at >= datetime('now') "
+        "SELECT id, text, remind_at, fired FROM reminders "
+        "WHERE chat_id = ? AND remind_at >= datetime('now') "
         "ORDER BY remind_at ASC LIMIT 50",
         (chat_id,),
     )
@@ -254,10 +252,11 @@ async def get_all_agenda(chat_id: int) -> str | None:
             "text": r["text"],
             "time": _fmt_time_short(dt),
             "datetime": dt,
+            "done": bool(r["fired"]),
         })
 
     lines = ["📋 *All Agenda*", _SEP, ""]
-    total = sum(len(items) for items in by_date.values())
+    total = 0
     done_total = 0
 
     for date_key in sorted(by_date.keys()):
@@ -275,11 +274,17 @@ async def get_all_agenda(chat_id: int) -> str | None:
 
         lines.append(day_label)
         for item in items:
-            lines.append(f"  ☐ {item['time']} · {item['text']}")
+            total += 1
+            if item["done"]:
+                done_total += 1
+                lines.append(f"  ☑ {item['time']} · {item['text']} ✓")
+            else:
+                lines.append(f"  ☐ {item['time']} · {item['text']}")
         lines.append("")
 
+    active = total - done_total
     lines.append(_SEP)
-    lines.append(f"📌 {total} items total")
+    lines.append(f"📌 {total} items · ☑ {done_total} done · ☐ {active} active")
     return "\n".join(lines)
 
 

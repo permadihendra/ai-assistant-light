@@ -167,6 +167,20 @@ Supported intents (EN + ID + mixed):
 
 **Bilingual:** Detects Indonesian/English from message keywords. Responds in same language.
 
+### AgendaPlugin 📋
+
+Agenda is a **UI/UX layer** over the reminders table — no separate storage.
+Shows ALL items for a date with visual ☐ (active) / ☑ (done) markers.
+
+- `/agenda` — today's agenda (all items, including done)
+- `/agenda tomorrow` — tomorrow's agenda
+- `/agenda all` — all upcoming, grouped by date
+- `/done <id>` — mark item as done (sets `fired=1`)
+- `/done all` — mark all today as done
+
+**Queries do NOT filter by `fired`** — done items remain visible with ☑ marker.
+This way: reminder fire → `fired=1` → item still shows in agenda (☑, not gone).
+
 ### NotesPlugin 📝
 
 Stores reference information in the `notes` SQLite table. Also serves as a cross-plugin viewer:
