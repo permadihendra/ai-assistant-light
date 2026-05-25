@@ -532,54 +532,181 @@ def _lang(msg: str) -> str:
 # All features scored independently. Highest score wins.
 # Ambiguous (scores too close) → fallback Gemini.
 
-# ── Keyword sets (EN + ID + mixed) ──────────────────────
-_AGENDA_W = {"agenda", "jadwal", "schedule", "meeting", "rapat", "tasks", "task", "acara", "tugas"}
-_TODAY_W   = {"today", "hari ini", "sekarang", "ini", "today's"}
-_TOMORROW_W = {"tomorrow", "besok", "lusa", "tomorrow's"}
-_ALL_W     = {"all", "semua", "upcoming", "keseluruhan", "daftar", "list", "everything"}
-_SHOW_W    = {"show", "lihat", "tampilkan", "cek", "what", "whats", "what's", "wats", "wat"}
-_DONE_W    = {"done", "selesai", "tandai", "beres", "finish", "complete", "completed", "mark"}
-_REMIND_CREATE_W = {"remind", "remind me", "reminder", "ingatkan", "ingetin", "pengingat", "alarm"}
-_REMIND_LIST_W   = {"reminders", "reminder"}
-_SEARCH_W   = {"search", "search for", "find", "cari", "cariin", "googling", "look up"}
-_NOTE_SAVE_W = {"catat", "save", "simpan", "simpen", "remember this", "note this", "catetan", "ingat ini"}
-_NOTE_LIST_W = {"notes", "catatan", "my notes"}
-_PC_W       = {"pc", "computer", "komputer", "desktop"}
-_PC_ON_W    = {"turn on", "hidupkan", "nyalakan", "start"}
-_PC_OFF_W   = {"turn off", "matikan", "shutdown", "power off", "padamkan"}
-_PC_STATUS_W = {"status", "nyala", "hidup", "on?", "running"}
-_HELP_W     = {"help", "bantuan", "what can you", "what can i", "commands", "perintah", "bisa apa"}
-_MY_W       = {"my", "saya", "aku", "gue", "gw"}
+# ── Keyword sets (EN + ID + slang + typos + mixed) ─────
+# All variants included directly — no separate typo map needed.
+# Word-boundary matching prevents substring false positives.
 
-# Typo normalization
-_TYPO_MAP = {
-    "jdwal": "jadwal", "jadual": "jadwal",
-    "agend": "agenda", "agin": "agenda", "agnda": "agenda", "agendaa": "agenda",
-    "bsk": "besok",
-    "tomorow": "tomorrow", "tomoro": "tomorrow", "tommorow": "tomorrow", "tomorow's": "tomorrow",
-    "todays": "today", "today's": "today",
-    "skrg": "sekarang", "skrng": "sekarang",
-    "schedual": "schedule", "schdule": "schedule",
-    "wat": "what", "wats": "what", "wot": "what", "wuts": "what",
-    "tampilin": "tampilkan",
-    "liatin": "lihat",
-    "ceck": "cek", "cekin": "cek",
-    "udh": "sudah", "udah": "sudah", "dah": "sudah",
-    "selesain": "selesai",
-    "ga": "tidak", "gak": "tidak",
-    "complite": "complete", "complited": "completed", "complate": "complete",
-    "finishd": "finish",
-    "dh": "sudah",
-    "reminds": "remind", "reminding": "remind",
-    "searches": "search", "searching": "search",
+_AGENDA_W = {
+    # English
+    "agenda", "agendas", "schedule", "schedules", "scheduling",
+    "meeting", "meetings", "meet", "task", "tasks", "plan", "plans",
+    # English slang / typos
+    "schedual", "schdule", "skedul", "skedule",
+    "meetin", "meetin", "mtg",
+    # Indonesian
+    "jadwal", "jadwall", "rapat", "rapatan", "rapatnya",
+    "acara", "acaraa", "tugas", "tugass", "kegiatan",
+    # Indonesian slang / typos
+    "jdwal", "jadual", "jadwel",
+    "agend", "agnda", "agendaa", "agin", "ajenda",
+}
+
+_TODAY_W = {
+    # English
+    "today", "today's", "todays",
+    # Indonesian
+    "hari ini", "sekarang", "ini", "skrg", "skrng",
+    "hari",  # in context like "agenda hari ini"
+}
+
+_TOMORROW_W = {
+    # English
+    "tomorrow", "tomorrow's",
+    # English typos
+    "tomorow", "tomoro", "tommorow", "tmrw",
+    # Indonesian
+    "besok", "lusa", "besoknya",
+    # Indonesian typos
+    "bsk", "esok",
+}
+
+_ALL_W = {
+    # English
+    "all", "everything", "upcoming", "upcomming",
+    "list", "lists", "full", "complete", "whole",
+    # Indonesian
+    "semua", "keseluruhan", "daftar", "seluruh", "semuanya",
+    # Indonesian slang
+    "all", "semuaa", "daftar", "list",
+}
+
+_SHOW_W = {
+    # English
+    "show", "shows", "display", "view", "open",
+    "what", "whats", "what's", "wat", "wats", "wot", "wuts",
+    # Indonesian
+    "lihat", "lihatlah", "tampilkan", "tampilin", "tunjukin",
+    "cek", "ceck", "cekin", "check", "periksa",
+    "buka", "lihatin", "liatin", "lihatkan",
+}
+
+_DONE_W = {
+    # English
+    "done", "finish", "finished", "finishd", "complete",
+    "completed", "complite", "complited", "complate",
+    "mark", "marked",
+    # Indonesian
+    "selesai", "selesain", "selesaikan", "beres", "beresin",
+    "tandai", "tandain", "centang", "sudah", "udh", "udah", "dah",
+    "ok", "oke",
+}
+
+_REMIND_CREATE_W = {
+    # English
+    "remind", "reminds", "reminding", "remind me", "reminder", "reminders",
+    "set reminder", "create reminder", "add reminder", "new reminder",
+    "alert", "alerts", "alert me", "notify", "notify me",
+    # Indonesian
+    "ingatkan", "ingetin", "ingetin", "pengingat", "alarm",
+    "tolong ingatkan", "kasih tahu", "kasih tau", "kasi tau",
+    # Mixed
+    "remind saya", "remind aku", "remind gue",
+}
+
+_REMIND_LIST_W = {
+    # English
+    "reminders", "reminder list", "my reminders", "list reminders",
+    # Indonesian
+    "reminder saya", "daftar reminder", "pengingat",
+}
+
+_SEARCH_W = {
+    # English
+    "search", "searches", "searching", "search for",
+    "find", "finds", "finding", "look up", "lookup",
+    "google", "googling", "find info", "find information",
+    # Indonesian
+    "cari", "cariin", "carian", "mencari", "nyari",
+    "googling", "searching",
+    # Mixed
+    "search tentang", "cari for",
+}
+
+_NOTE_SAVE_W = {
+    # English
+    "save", "saves", "saving", "save this",
+    "remember this", "remember that", "note this", "note down",
+    "take note", "take notes", "store this",
+    # Indonesian
+    "catat", "catat ini", "catetan", "nyatet",
+    "simpan", "simpen", "simpan ini", "nyimpen",
+    "ingat ini", "inget ini",
+}
+
+_NOTE_LIST_W = {
+    # English
+    "notes", "my notes", "all notes", "list notes", "saved notes",
+    # Indonesian
+    "catatan", "catatan saya", "catatan ku", "daftar catatan",
+    "semua catatan", "catetan",
+}
+
+_PC_W = {
+    # English
+    "pc", "computer", "computers", "desktop", "workstation", "machine",
+    # Indonesian
+    "komputer", "pc",
+}
+
+_PC_ON_W = {
+    # English
+    "turn on", "turnon", "power on", "poweron", "boot", "start",
+    "wake", "wake up", "wakeup", "switch on",
+    # Indonesian
+    "hidupkan", "nyalakan", "nyalain", "start", "hidupin", "booting",
+}
+
+_PC_OFF_W = {
+    # English
+    "turn off", "turnoff", "power off", "poweroff", "shut down",
+    "shutdown", "switch off", "switchoff", "kill", "stop",
+    # Indonesian
+    "matikan", "matiin", "padamkan", "shutdown", "tutup", "nonaktifkan",
+}
+
+_PC_STATUS_W = {
+    # English
+    "status", "running", "on?", "is on", "is off", "state",
+    # Indonesian
+    "nyala", "hidup", "mati", "status", "kondisi", "keadaan",
+}
+
+_HELP_W = {
+    # English
+    "help", "helps", "commands", "what can you", "what can i",
+    "what you do", "what can i do", "how to", "guide",
+    # Indonesian
+    "bantuan", "tolong", "perintah", "perintah apa", "bisa apa",
+    "cara pakai", "panduan", "help",
+}
+
+_MY_W = {
+    # English
+    "my", "mine",
+    # Indonesian
+    "saya", "aku", "gue", "gw", "ku", "punya saya",
 }
 
 
 def _normalize(text: str) -> str:
-    """Normalize: lowercase, typo fix, collapse whitespace."""
+    """Normalize: lowercase, strip punctuation, collapse whitespace.
+    
+    Keyword variants (including typos) are handled directly in the
+    keyword sets — no separate typo normalization needed.
+    """
     t = text.lower().strip()
-    for typo, correct in _TYPO_MAP.items():
-        t = re.sub(rf'\b{typo}\b', correct, t)
+    # Remove common punctuation but keep internal spaces
+    t = re.sub(r'[\?\!\.\,\;\:]', '', t)
     t = re.sub(r'\s+', ' ', t)
     return t.strip()
 
@@ -609,6 +736,7 @@ def _score_agenda_today(t: str) -> float:
     if _has_w(t, _AGENDA_W) and _has_w(t, _TODAY_W): s = max(s, 0.85)
     if _has_w(t, _SHOW_W) and _has_w(t, _TODAY_W): s = max(s, 0.80)
     if _has_w(t, _SHOW_W) and _has_w(t, _AGENDA_W): s = max(s, 0.80)
+    if _has_w(t, _MY_W) and _has_w(t, _AGENDA_W): s = max(s, 0.75)
     if t in ("agenda", "jadwal", "schedule"): s = max(s, 0.90)
     if re.search(r'\bada\s+apa\b', t) and _has_w(t, _TODAY_W): s = max(s, 0.75)
     if _has_w(t, {"what"}) and _has_w(t, _TODAY_W) and _has_w(t, _SHOW_W): s = max(s, 0.75)
@@ -657,14 +785,14 @@ def _score_remind_create(t: str) -> float:
     if _has_w(t, _SEARCH_W): s -= 0.40
     if _has_w(t, _AGENDA_W): s -= 0.30
     if _has_w(t, _ALL_W): s -= 0.30
-    if "list" in t or "daftar" in t: s -= 0.40
+    if _has_w(t, {"list", "daftar"}): s -= 0.40
     return max(0, s)
 
 
 def _score_remind_list(t: str) -> float:
     s = 0.0
     if t in ("reminders", "reminder", "reminder saya", "daftar reminder"): s = max(s, 0.90)
-    if _has_w(t, _REMIND_LIST_W) and (_has_w(t, _SHOW_W) or _has_w(t, _MY_W) or "daftar" in t): s = max(s, 0.80)
+    if _has_w(t, _REMIND_LIST_W) and (_has_w(t, _SHOW_W) or _has_w(t, _MY_W) or _has_w(t, {"daftar"})): s = max(s, 0.80)
     if _has_w(t, _REMIND_LIST_W): s = max(s, 0.50)
     if _has_w(t, _REMIND_CREATE_W) and _has_w(t, {"my", "saya", "list", "daftar"}): s = max(s, 0.75)
     # Penalize if time/create words present (likely remind_create)
@@ -703,7 +831,7 @@ def _score_note_save(t: str) -> float:
 def _score_note_list(t: str) -> float:
     s = 0.0
     if t in ("notes", "catatan", "my notes", "catatan saya"): s = max(s, 0.90)
-    if _has_w(t, _NOTE_LIST_W) and (_has_w(t, _SHOW_W) or _has_w(t, _MY_W) or "daftar" in t): s = max(s, 0.80)
+    if _has_w(t, _NOTE_LIST_W) and (_has_w(t, _SHOW_W) or _has_w(t, _MY_W) or _has_w(t, {"daftar"})): s = max(s, 0.80)
     if _has_w(t, _NOTE_LIST_W): s = max(s, 0.50)
     if _has_w(t, _NOTE_SAVE_W): s -= 0.30
     return max(0, s)
