@@ -32,6 +32,7 @@ _ACTION_MAP: dict[str, tuple[str, str | None]] = {
     "agenda_tomorrow": ("agenda", "/agenda tomorrow"),
     "agenda_all": ("agenda", "/agenda all"),
     "agenda_done": ("agenda", None),  # special: parsed by AgendaPlugin
+    "agenda_done_all": ("agenda", None),  # special: mark all today as done
 }
 
 # Actions that need validation before execution
@@ -59,6 +60,15 @@ class BrainPlugin(Plugin):
         # Skip pure separators (===, ---, ***, ___)
         if re.match(r"^[=\-*_#~]{3,}$", ctx.message_text.strip()):
             return None
+
+        # ── Local intent detection (fast path, 0 API call) ────
+        local_action = _detect_local_intent(ctx.message_text)
+        if local_action:
+            logger.debug("Local intent detected: %s", local_action)
+            return await self._route_single(
+                local_action["action"],
+                local_action.get("params", {}),
+            )
 
         provider = self._get_provider()
         if provider is None:
@@ -308,6 +318,20 @@ class BrainPlugin(Plugin):
         if action == "agenda_create":
             return await self._handle_agenda_create(params)
 
+        if action == "agenda_done":
+            reminder_id = params.get("id")
+            if reminder_id:
+                plugin = PluginRegistry.get().get_plugin("agenda")
+                if plugin:
+                    return await plugin.mark_done_by_id(ctx.chat_id, reminder_id)
+            return "❓ Which item? Use `/done <id>` or tell me the number."
+
+        if action == "agenda_done_all":
+            plugin = PluginRegistry.get().get_plugin("agenda")
+            if plugin:
+                return await plugin.mark_done_all_today(ctx.chat_id)
+            return "❌ Agenda plugin not available."
+
         if action == "remind_create":
             return await self._handle_remind_create(params)
 
@@ -502,3 +526,130 @@ def _lang(msg: str) -> str:
     if id_count > en_count:
         return "id"
     return "en"
+
+
+# ── Local intent detection (fast path, 0 API call) ────────────
+# Maps natural language patterns to actions without calling the LLM.
+# Falls through to Gemini if no match (no false positives).
+
+# Keyword sets
+_AGENDA_WORDS = {"agenda", "jadwal", "schedule", "meeting", "rapat", "tasks", "task", "acara", "tugas"}
+_TODAY_WORDS = {"today", "hari ini", "sekarang", "ini", "today's"}
+_TOMORROW_WORDS = {"tomorrow", "besok", "lusa", "tomorrow's"}
+_ALL_WORDS = {"all", "semua", "upcoming", "keseluruhan", "daftar", "list", "everything"}
+_SHOW_WORDS = {"show", "lihat", "tampilkan", "cek", "what", "whats", "what's", "wats", "wat", "what's on"}
+_DONE_WORDS = {"done", "selesai", "tandai", "beres", "finish", "complete", "completed", "mark"}
+_MY_WORDS = {"my", "saya", "aku", "gue", "gw"}
+
+# Typo normalization map
+_TYPO_MAP = {
+    "jdwal": "jadwal", "jadual": "jadwal",
+    "agend": "agenda", "agin": "agenda",
+    "bsk": "besok",
+    "tomorow": "tomorrow", "tomoro": "tomorrow", "tomorow's": "tomorrow",
+    "todays": "today", "today's": "today",
+    "skrg": "sekarang", "skrng": "sekarang",
+    "schedual": "schedule", "schdule": "schedule",
+    "wat": "what", "wats": "what", "wot": "what", "wuts": "what",
+    "tampilin": "tampilkan",
+    "liatin": "lihat",
+    "ceck": "cek", "cekin": "cek",
+    "udh": "sudah", "udah": "sudah", "dah": "sudah",
+    "selesain": "selesai",
+    "ga": "tidak", "gak": "tidak",
+    "complite": "complete", "complited": "completed", "complate": "complete",
+    "finishd": "finish",
+    "dh": "sudah",
+}
+
+
+def _normalize(text: str) -> str:
+    """Normalize text: lowercase, fix common typos, strip noise."""
+    t = text.lower().strip()
+    # Replace common typos
+    for typo, correct in _TYPO_MAP.items():
+        t = re.sub(rf'\b{typo}\b', correct, t)
+    # Normalize whitespace
+    t = re.sub(r'\s+', ' ', t)
+    return t.strip()
+
+
+def _has_words(text: str, word_set: set, min_count: int = 1) -> bool:
+    """Check if text contains at least min_count words from word_set."""
+    count = sum(1 for w in word_set if w in text)
+    return count >= min_count
+
+
+def _has_number(text: str) -> int | None:
+    """Extract first number from text. Returns None if no number found."""
+    import re
+    m = re.search(r'(?:nomor\s*)?(\d+)', text)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _detect_local_intent(text: str) -> dict | None:
+    """Detect user intent from natural language without calling LLM.
+    
+    Returns {"action": ..., "params": {...}} or None if unclear (→ fallback Gemini).
+    """
+    t = _normalize(text)
+    
+    # Skip if too short (single word noise like "what", "hi")
+    if len(t) < 4 and t not in _AGENDA_WORDS:
+        return None
+    
+    # ── Agenda today: agenda_word + today_word (HIGH confidence) ──
+    if _has_words(t, _AGENDA_WORDS) and _has_words(t, _TODAY_WORDS):
+        return {"action": "agenda_today"}
+    
+    # ── Agenda today: show_word + today_word ──
+    if _has_words(t, _SHOW_WORDS) and _has_words(t, _TODAY_WORDS):
+        return {"action": "agenda_today"}
+    
+    # ── Agenda today: show_word + agenda_word ──
+    if _has_words(t, _SHOW_WORDS) and _has_words(t, _AGENDA_WORDS):
+        return {"action": "agenda_today"}
+    
+    # ── Agenda today: my + agenda_word ──
+    if _has_words(t, _MY_WORDS) and _has_words(t, _AGENDA_WORDS):
+        return {"action": "agenda_today"}
+    
+    # ── Agenda tomorrow: agenda_word + tomorrow_word ──
+    if _has_words(t, _AGENDA_WORDS) and _has_words(t, _TOMORROW_WORDS):
+        return {"action": "agenda_tomorrow"}
+    
+    # ── Agenda tomorrow: show_word + tomorrow_word ──
+    if _has_words(t, _SHOW_WORDS) and _has_words(t, _TOMORROW_WORDS):
+        return {"action": "agenda_tomorrow"}
+    
+    # ── All agenda: agenda_word + all_word ──
+    if _has_words(t, _AGENDA_WORDS) and _has_words(t, _ALL_WORDS):
+        return {"action": "agenda_all"}
+    
+    # ── All agenda: show_word + all_word ──
+    if _has_words(t, _SHOW_WORDS) and _has_words(t, _ALL_WORDS):
+        return {"action": "agenda_all"}
+    
+    # ── Natural ID question + temporal ──
+    if ("ada apa" in t or "what" in t or "apa" in t) and _has_words(t, _TODAY_WORDS):
+        return {"action": "agenda_today"}
+    if ("ada apa" in t or "what" in t or "apa" in t) and _has_words(t, _TOMORROW_WORDS):
+        return {"action": "agenda_tomorrow"}
+    
+    # ── Single agenda words (unambiguous) ──
+    if t in ("agenda", "jadwal", "schedule"):
+        return {"action": "agenda_today"}
+    
+    # ── Mark done: done_word + number ──
+    num = _has_number(t) if _has_words(t, _DONE_WORDS) else None
+    if num is not None:
+        return {"action": "agenda_done", "params": {"id": num}}
+    
+    # ── Mark done: done_word + all/semua ──
+    if _has_words(t, _DONE_WORDS) and _has_words(t, {"all", "semua", "today"}):
+        return {"action": "agenda_done_all"}
+    
+    # ── No match → fallback to Gemini ──
+    return None
