@@ -201,7 +201,7 @@ class ReminderPlugin(Plugin):
 
         c = await db.execute(
             "INSERT INTO reminders (chat_id, user_id, text, remind_at, alerts) VALUES (?,?,?,?,?)",
-            (ctx.chat_id, ctx.user_id, message, remind_at.isoformat(), "[10]"),
+            (ctx.chat_id, ctx.user_id, message, remind_at.strftime('%Y-%m-%d %H:%M:%S'), "[10]"),
         )
         rid = c.lastrowid
         await db.commit()
@@ -224,7 +224,7 @@ class ReminderPlugin(Plugin):
         alerts_json = json.dumps(alerts or [10])
         c = await db.execute(
             "INSERT INTO reminders (chat_id, user_id, text, remind_at, alerts, source_text) VALUES (?,?,?,?,?,?)",
-            (chat_id, user_id, text, remind_at.isoformat(), alerts_json, source_text),
+            (chat_id, user_id, text, remind_at.strftime('%Y-%m-%d %H:%M:%S'), alerts_json, source_text),
         )
         rid = c.lastrowid
         await db.commit()

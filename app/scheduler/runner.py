@@ -48,6 +48,9 @@ async def _check_reminders() -> None:
 
         for row in rows:
             remind_at = datetime.fromisoformat(row["remind_at"])
+            # Make timezone-aware (stored as naive UTC)
+            if remind_at.tzinfo is None:
+                remind_at = remind_at.replace(tzinfo=timezone.utc)
             alerts_list: list[int] = json.loads(row["alerts"] or "[10]")
             alerts_fired: int = row["alerts_fired"] or 0
             total_alerts = len(alerts_list)
