@@ -33,21 +33,52 @@ class SystemPlugin(Plugin):
 
     def _build_help(self) -> str:
         registry = PluginRegistry.get()
-        lines = ["🤖 *AI Assistant Light — Commands*", ""]
+        parts = [
+            "🤖 *AI Assistant Light — Commands*",
+            "",
+            "📋 *Agenda*",
+            "  `/agenda` — Today's agenda",
+            "  `/agenda tomorrow` — Tomorrow's agenda",
+            "  `/agenda all` — All upcoming agenda",
+            "  `/done <id>` — Check off agenda item",
+            "  `/done all` — Check off all today",
+            "  🤖 Bot also sends agenda auto at 06:00 & 16:00",
+            "",
+            "⏰ *Reminders*",
+            "  `/remind 10m <msg>` — Set reminder (10m, 2h, besok 09:00)",
+            "  `/reminders` — List active reminders",
+            "  `/cancel <id>` — Cancel a reminder",
+            "  🔔 Auto alert 10min before each reminder",
+            "",
+            "🔍 *Search & Notes*",
+            "  `/search <query>` — Web search (DuckDuckGo)",
+            "  `/notes` — List all saved notes",
+            "  `/note <id>` — View note or reminder source",
+            "",
+            "📊 *Summarizer*",
+            "  `/summarize` — Summarize recent messages",
+            "  `/lastsummary` — View last summary",
+            "",
+            "⚙️ *System*",
+            "  `/ping` — Health check",
+            "  `/status` — Bot status info",
+            "  `/start` — Welcome message",
+            "",
+            "🧠 *AI Brain (Natural Language)*",
+            "  Just type what you want — bot understands:",
+            "  • \"search for fastapi\" → web search",
+            "  • \"remind me 10m check oven\" → set reminder",
+            "  • \"my wifi password is admin123\" → save note",
+            "  • \"today's agenda\" → show today",
+            "  • \"turn on my pc\" → PC power (GPIO)",
+            "  • \"done meeting 3\" → mark agenda done",
+            "  • Forward a schedule → auto-save as agenda",
+            "",
+            "💡 *Tips*",
+            "• Reminder time formats: `10m`, `2h`, `besok 09:00`, `lusa 08:00`",
+            "• /done <id> — check off any agenda item by its number",
+            "• Bot remembers conversation context — reply to messages",
+            "  for follow-up questions, bot will know what you mean",
+        ]
 
-        for plugin in registry.all():
-            cmds = ", ".join(f"/{c}" for c in plugin.commands)
-            lines.append(f"**{cmds}** — {plugin.description}")
-
-        lines.extend(
-            [
-                "",
-                "💡 *Tips*",
-                "• Use `/remind 10m <msg>` for relative time",
-                "• Use `/remind tomorrow 09:00 <msg>` for tomorrow",
-                "• Use `/search <query>` to search the web",
-                "• Use `/summarize` to summarize recent messages",
-            ]
-        )
-
-        return "\n".join(lines)
+        return "\n".join(parts)
