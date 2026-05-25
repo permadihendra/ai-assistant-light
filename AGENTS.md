@@ -137,6 +137,34 @@ response after LLM finishes. No more awkward silence.
 - `app/plugins/brain/state.py` — in-memory pending state per chat (lost on restart — safe)
 - `app/plugins/brain/picker.py` — inline keyboard time picker (period → hour → minute)
 
+**Local Intent Detection (Confidence Scoring):**
+Before calling Gemini, BrainPlugin tries local intent detection:
+
+```
+User message → _detect_local_intent()
+  ├─ Score ALL features independently (0.0 - 1.0)
+  │  Agenda | Remind | Notes | Search | PC | Help
+  ├─ Filter: keep only scores ≥ 0.75
+  ├─ Ambiguous? (top 2 within 0.15) → fallback Gemini
+  └─ Clear winner? → route directly (0 API call)
+```
+
+Supported intents (EN + ID + mixed):
+| Feature | EN Keywords | ID Keywords |
+|---|---|---|
+| Agenda Today | schedule today, my agenda | agenda hari ini, jadwal |
+| Agenda Tomorrow | tomorrow's schedule | jadwal besok |
+| Agenda All | all agenda, everything | semua agenda |
+| Done | done 3, mark complete | selesai nomor 2, tandai |
+| Remind Create | remind me in 10m, set reminder | ingatkan jam 5, ingetin |
+| Remind List | my reminders, list reminders | reminder saya, daftar reminder |
+| Note Save | save this, remember this | catat, simpen, ingat ini |
+| Note List | my notes, show notes | catatan saya, daftar catatan |
+| Search | search about, find | cari tentang, googling |
+| PC On | turn on pc, start computer | hidupkan pc, nyalakan komputer |
+| PC Off | turn off, shutdown | matikan, shutdown |
+| PC Status | pc status, is my pc on | status pc, pc nyala |
+
 **Bilingual:** Detects Indonesian/English from message keywords. Responds in same language.
 
 ### NotesPlugin 📝

@@ -75,6 +75,9 @@
 - [x] **FTS5 full-text search** — `messages_fts` + `notes_fts` (migration 007)
 - [x] **Message type tracking** — `type='user'` / `type='bot'` (migration 008)
 - [x] **Bot responses stored** — LLM sees FULL conversation, not half
+- [x] **Local intent detection** — confidence scoring (0.0-1.0), 12 features, bilingual EN+ID
+- [x] **Ambiguity detection** — scores within 0.15 → fallback Gemini, avoids false positives
+- [x] **Typo normalization** — 25+ common typos (jdwal→jadwal, tomorow→tomorrow)
 
 ### PC Power Control
 - [x] GPIO relay scripts (power on/off via `RPi.GPIO`)

@@ -528,20 +528,30 @@ def _lang(msg: str) -> str:
     return "en"
 
 
-# ── Local intent detection (fast path, 0 API call) ────────────
-# Maps natural language patterns to actions without calling the LLM.
-# Falls through to Gemini if no match (no false positives).
+# ── Local intent detection (confidence scoring) ──────────────
+# All features scored independently. Highest score wins.
+# Ambiguous (scores too close) → fallback Gemini.
 
-# Keyword sets
-_AGENDA_WORDS = {"agenda", "jadwal", "schedule", "meeting", "rapat", "tasks", "task", "acara", "tugas"}
-_TODAY_WORDS = {"today", "hari ini", "sekarang", "ini", "today's"}
-_TOMORROW_WORDS = {"tomorrow", "besok", "lusa", "tomorrow's"}
-_ALL_WORDS = {"all", "semua", "upcoming", "keseluruhan", "daftar", "list", "everything"}
-_SHOW_WORDS = {"show", "lihat", "tampilkan", "cek", "what", "whats", "what's", "wats", "wat", "what's on"}
-_DONE_WORDS = {"done", "selesai", "tandai", "beres", "finish", "complete", "completed", "mark"}
-_MY_WORDS = {"my", "saya", "aku", "gue", "gw"}
+# ── Keyword sets (EN + ID + mixed) ──────────────────────
+_AGENDA_W = {"agenda", "jadwal", "schedule", "meeting", "rapat", "tasks", "task", "acara", "tugas"}
+_TODAY_W   = {"today", "hari ini", "sekarang", "ini", "today's"}
+_TOMORROW_W = {"tomorrow", "besok", "lusa", "tomorrow's"}
+_ALL_W     = {"all", "semua", "upcoming", "keseluruhan", "daftar", "list", "everything"}
+_SHOW_W    = {"show", "lihat", "tampilkan", "cek", "what", "whats", "what's", "wats", "wat"}
+_DONE_W    = {"done", "selesai", "tandai", "beres", "finish", "complete", "completed", "mark"}
+_REMIND_CREATE_W = {"remind", "remind me", "reminder", "ingatkan", "ingetin", "pengingat", "alarm"}
+_REMIND_LIST_W   = {"reminders", "reminder"}
+_SEARCH_W   = {"search", "search for", "find", "cari", "cariin", "googling", "look up"}
+_NOTE_SAVE_W = {"catat", "save", "simpan", "simpen", "remember this", "note this", "catetan", "ingat ini"}
+_NOTE_LIST_W = {"notes", "catatan", "my notes"}
+_PC_W       = {"pc", "computer", "komputer", "desktop"}
+_PC_ON_W    = {"turn on", "hidupkan", "nyalakan", "start"}
+_PC_OFF_W   = {"turn off", "matikan", "shutdown", "power off", "padamkan"}
+_PC_STATUS_W = {"status", "nyala", "hidup", "on?", "running"}
+_HELP_W     = {"help", "bantuan", "what can you", "what can i", "commands", "perintah", "bisa apa"}
+_MY_W       = {"my", "saya", "aku", "gue", "gw"}
 
-# Typo normalization map
+# Typo normalization
 _TYPO_MAP = {
     "jdwal": "jadwal", "jadual": "jadwal",
     "agend": "agenda", "agin": "agenda",
@@ -560,96 +570,234 @@ _TYPO_MAP = {
     "complite": "complete", "complited": "completed", "complate": "complete",
     "finishd": "finish",
     "dh": "sudah",
+    "reminds": "remind", "reminding": "remind",
+    "searches": "search", "searching": "search",
 }
 
 
 def _normalize(text: str) -> str:
-    """Normalize text: lowercase, fix common typos, strip noise."""
+    """Normalize: lowercase, typo fix, collapse whitespace."""
     t = text.lower().strip()
-    # Replace common typos
     for typo, correct in _TYPO_MAP.items():
         t = re.sub(rf'\b{typo}\b', correct, t)
-    # Normalize whitespace
     t = re.sub(r'\s+', ' ', t)
     return t.strip()
 
 
-def _has_words(text: str, word_set: set, min_count: int = 1) -> bool:
-    """Check if text contains at least min_count words from word_set."""
-    count = sum(1 for w in word_set if w in text)
-    return count >= min_count
+def _has_w(t: str, s: set, min_c: int = 1) -> bool:
+    """Check if text t has >= min_c words from set s (word boundary match)."""
+    count = 0
+    for w in s:
+        if re.search(r'\b' + re.escape(w) + r'\b', t):
+            count += 1
+            if count >= min_c:
+                return True
+    return False
 
 
-def _has_number(text: str) -> int | None:
-    """Extract first number from text. Returns None if no number found."""
-    import re
-    m = re.search(r'(?:nomor\s*)?(\d+)', text)
-    if m:
-        return int(m.group(1))
-    return None
+def _has_num(t: str) -> int | None:
+    """Extract first number."""
+    m = re.search(r'(?:nomor\s*|#)?(\d+)', t)
+    return int(m.group(1)) if m else None
+
+
+def _score_agenda_today(t: str) -> float:
+    s = 0.0
+    if _has_w(t, _AGENDA_W) and _has_w(t, _TODAY_W): s = max(s, 0.85)
+    if _has_w(t, _SHOW_W) and _has_w(t, _TODAY_W): s = max(s, 0.80)
+    if _has_w(t, _SHOW_W) and _has_w(t, _AGENDA_W): s = max(s, 0.80)
+    if t in ("agenda", "jadwal", "schedule"): s = max(s, 0.90)
+    if re.search(r'\bada\s+apa\b', t) and _has_w(t, _TODAY_W): s = max(s, 0.75)
+    if _has_w(t, {"what"}) and _has_w(t, _TODAY_W) and _has_w(t, _SHOW_W): s = max(s, 0.75)
+    # Penalize if search/remind keyword present (likely not agenda)
+    if _has_w(t, _SEARCH_W) and "agenda" not in t: s -= 0.30
+    if _has_w(t, _REMIND_CREATE_W): s -= 0.30
+    return max(0, s)
+
+
+def _score_agenda_tomorrow(t: str) -> float:
+    s = 0.0
+    if _has_w(t, _AGENDA_W) and _has_w(t, _TOMORROW_W): s = max(s, 0.85)
+    if _has_w(t, _SHOW_W) and _has_w(t, _TOMORROW_W): s = max(s, 0.80)
+    if re.search(r'\bada\s+apa\b', t) and _has_w(t, _TOMORROW_W): s = max(s, 0.75)
+    if _has_w(t, _SEARCH_W): s -= 0.30
+    return max(0, s)
+
+
+def _score_agenda_all(t: str) -> float:
+    s = 0.0
+    if _has_w(t, _AGENDA_W) and _has_w(t, _ALL_W): s = max(s, 0.85)
+    if _has_w(t, _SHOW_W) and _has_w(t, _ALL_W): s = max(s, 0.75)
+    return max(0, s)
+
+
+def _score_agenda_done(t: str) -> tuple[float, dict | None]:
+    s = 0.0
+    num = _has_num(t) if _has_w(t, _DONE_W) else None
+    if num is not None: s = max(s, 0.90)
+    if _has_w(t, _DONE_W) and _has_w(t, {"all", "semua", "today"}):
+        return 0.90, {"action": "agenda_done_all"}
+    if s >= 0.90:
+        return s, {"action": "agenda_done", "params": {"id": num}}
+    return 0, None
+
+
+def _score_remind_create(t: str) -> float:
+    s = 0.0
+    has_primary = _has_w(t, _REMIND_CREATE_W)
+    has_time = bool(re.search(r'\d+\s*(m|h|s|menit|jam|detik|minutes?|hours?)', t)) or \
+               bool(re.search(r'\b(tomorrow|besok|hari ini|lusa|today|tonight|nanti)\b', t))
+    if has_primary and has_time: s = max(s, 0.90)
+    if has_primary and len(t) > 15: s = max(s, 0.75)
+    if has_primary: s = max(s, 0.60)
+    # Penalize if search/agenda/list intent
+    if _has_w(t, _SEARCH_W): s -= 0.40
+    if _has_w(t, _AGENDA_W): s -= 0.30
+    if _has_w(t, _ALL_W): s -= 0.30
+    if "list" in t or "daftar" in t: s -= 0.40
+    return max(0, s)
+
+
+def _score_remind_list(t: str) -> float:
+    s = 0.0
+    if t in ("reminders", "reminder", "reminder saya", "daftar reminder"): s = max(s, 0.90)
+    if _has_w(t, _REMIND_LIST_W) and (_has_w(t, _SHOW_W) or _has_w(t, _MY_W) or "daftar" in t): s = max(s, 0.80)
+    if _has_w(t, _REMIND_LIST_W): s = max(s, 0.50)
+    if _has_w(t, _REMIND_CREATE_W) and _has_w(t, {"my", "saya", "list", "daftar"}): s = max(s, 0.75)
+    # Penalize if time/create words present (likely remind_create)
+    if _has_w(t, {"in", "at", "jam", "besok", "tomorrow", "nanti"}): s -= 0.30
+    return max(0, s)
+
+
+def _score_search(t: str) -> float:
+    s = 0.0
+    has_primary = _has_w(t, _SEARCH_W)
+    query_len = len(t) - 6  # rough query length after "search "
+    if has_primary and query_len > 10: s = max(s, 0.85)
+    if has_primary and query_len > 3: s = max(s, 0.75)
+    if has_primary: s = max(s, 0.55)
+    # Penalize if agenda/note/remind keywords present (those take priority)
+    if _has_w(t, _AGENDA_W): s -= 0.35
+    if _has_w(t, _NOTE_SAVE_W): s -= 0.35
+    if _has_w(t, _REMIND_CREATE_W): s -= 0.35
+    if t.strip() in ("cari", "search", "find"): s = 0  # too vague alone
+    return max(0, s)
+
+
+def _score_note_save(t: str) -> float:
+    s = 0.0
+    has_primary = _has_w(t, _NOTE_SAVE_W)
+    has_content = len(t) > 10
+    if has_primary and has_content: s = max(s, 0.80)
+    if has_primary: s = max(s, 0.55)
+    # Penalize if remind/search/agenda
+    if _has_w(t, _REMIND_CREATE_W): s -= 0.40
+    if _has_w(t, _SEARCH_W): s -= 0.35
+    if _has_w(t, {"list", "daftar", "show", "tampilkan"}): s -= 0.30
+    return max(0, s)
+
+
+def _score_note_list(t: str) -> float:
+    s = 0.0
+    if t in ("notes", "catatan", "my notes", "catatan saya"): s = max(s, 0.90)
+    if _has_w(t, _NOTE_LIST_W) and (_has_w(t, _SHOW_W) or _has_w(t, _MY_W) or "daftar" in t): s = max(s, 0.80)
+    if _has_w(t, _NOTE_LIST_W): s = max(s, 0.50)
+    if _has_w(t, _NOTE_SAVE_W): s -= 0.30
+    return max(0, s)
+
+
+def _score_pc_control(t: str) -> tuple[float, str | None]:
+    s = 0.0
+    action = None
+    has_device = _has_w(t, _PC_W)
+    has_on = _has_w(t, _PC_ON_W)
+    has_off = _has_w(t, _PC_OFF_W)
+    has_status = _has_w(t, _PC_STATUS_W)
+    
+    if has_on and has_device: s = max(s, 0.90); action = "pc_on"
+    if has_off and has_device: s = max(s, 0.90); action = "pc_off"
+    if has_device and has_status: s = max(s, 0.85); action = "pc_status"
+    if "pc" in t and "status" in t: s = max(s, 0.80); action = "pc_status"
+    return s, action
+
+
+def _score_help(t: str) -> float:
+    if _has_w(t, _HELP_W):
+        return 0.85
+    if t in ("help", "bantuan", "tolong", "commands", "perintah"):
+        return 0.90
+    return 0
 
 
 def _detect_local_intent(text: str) -> dict | None:
-    """Detect user intent from natural language without calling LLM.
+    """Detect intent via confidence scoring. Returns action dict or None → Gemini.
     
-    Returns {"action": ..., "params": {...}} or None if unclear (→ fallback Gemini).
+    All features scored independently (0.0 - 1.0).
+    - Best score > 0.75 AND gap > 0.15 → route
+    - Otherwise → Gemini (ambiguous or low confidence)
     """
     t = _normalize(text)
     
-    # Skip if too short (single word noise like "what", "hi")
-    if len(t) < 4 and t not in _AGENDA_WORDS:
+    # Skip very short noise (unless it's a known command)
+    if len(t) < 3:
+        return None
+    if len(t) < 5 and t not in ("agenda", "jadwal", "help", "ping", "notes", "catatan", "status", "schedule"):
         return None
     
-    # ── Agenda today: agenda_word + today_word (HIGH confidence) ──
-    if _has_words(t, _AGENDA_WORDS) and _has_words(t, _TODAY_WORDS):
-        return {"action": "agenda_today"}
+    # ── Score all features ────────────────────────────────
+    candidates: list[tuple[float, dict]] = []
     
-    # ── Agenda today: show_word + today_word ──
-    if _has_words(t, _SHOW_WORDS) and _has_words(t, _TODAY_WORDS):
-        return {"action": "agenda_today"}
+    # Priority 1: Exact command words (highest confidence)
+    if t == "ping": candidates.append((1.0, {"action": "ping"}))
+    if t == "status": candidates.append((1.0, {"action": "status"}))
+    if t == "help": candidates.append((1.0, {"action": "help"}))
     
-    # ── Agenda today: show_word + agenda_word ──
-    if _has_words(t, _SHOW_WORDS) and _has_words(t, _AGENDA_WORDS):
-        return {"action": "agenda_today"}
+    # Agenda
+    candidates.append((_score_agenda_today(t), {"action": "agenda_today"}))
+    candidates.append((_score_agenda_tomorrow(t), {"action": "agenda_tomorrow"}))
+    candidates.append((_score_agenda_all(t), {"action": "agenda_all"}))
+    s_done, done_action = _score_agenda_done(t)
+    if done_action:
+        candidates.append((s_done, done_action))
     
-    # ── Agenda today: my + agenda_word ──
-    if _has_words(t, _MY_WORDS) and _has_words(t, _AGENDA_WORDS):
-        return {"action": "agenda_today"}
+    # Reminders
+    candidates.append((_score_remind_create(t), {"action": "remind_create"}))
+    candidates.append((_score_remind_list(t), {"action": "remind_list"}))
     
-    # ── Agenda tomorrow: agenda_word + tomorrow_word ──
-    if _has_words(t, _AGENDA_WORDS) and _has_words(t, _TOMORROW_WORDS):
-        return {"action": "agenda_tomorrow"}
+    # Notes
+    candidates.append((_score_note_save(t), {"action": "note_save"}))
+    candidates.append((_score_note_list(t), {"action": "note_list"}))
     
-    # ── Agenda tomorrow: show_word + tomorrow_word ──
-    if _has_words(t, _SHOW_WORDS) and _has_words(t, _TOMORROW_WORDS):
-        return {"action": "agenda_tomorrow"}
+    # Search
+    candidates.append((_score_search(t), {"action": "search"}))
     
-    # ── All agenda: agenda_word + all_word ──
-    if _has_words(t, _AGENDA_WORDS) and _has_words(t, _ALL_WORDS):
-        return {"action": "agenda_all"}
+    # PC control
+    s_pc, pc_action = _score_pc_control(t)
+    if pc_action:
+        candidates.append((s_pc, {"action": pc_action}))
     
-    # ── All agenda: show_word + all_word ──
-    if _has_words(t, _SHOW_WORDS) and _has_words(t, _ALL_WORDS):
-        return {"action": "agenda_all"}
+    # Help
+    candidates.append((_score_help(t), {"action": "help"}))
     
-    # ── Natural ID question + temporal ──
-    if ("ada apa" in t or "what" in t or "apa" in t) and _has_words(t, _TODAY_WORDS):
-        return {"action": "agenda_today"}
-    if ("ada apa" in t or "what" in t or "apa" in t) and _has_words(t, _TOMORROW_WORDS):
-        return {"action": "agenda_tomorrow"}
+    # ── Filter + rank ────────────────────────────────────
+    MIN_CONFIDENCE = 0.75
+    AMBIGUITY_GAP = 0.15
     
-    # ── Single agenda words (unambiguous) ──
-    if t in ("agenda", "jadwal", "schedule"):
-        return {"action": "agenda_today"}
+    # Filter: only keep above threshold
+    valid = [(s, a) for s, a in candidates if s >= MIN_CONFIDENCE]
     
-    # ── Mark done: done_word + number ──
-    num = _has_number(t) if _has_words(t, _DONE_WORDS) else None
-    if num is not None:
-        return {"action": "agenda_done", "params": {"id": num}}
+    if not valid:
+        return None  # → Gemini
     
-    # ── Mark done: done_word + all/semua ──
-    if _has_words(t, _DONE_WORDS) and _has_words(t, {"all", "semua", "today"}):
-        return {"action": "agenda_done_all"}
+    # Sort by score descending
+    valid.sort(key=lambda x: -x[0])
     
-    # ── No match → fallback to Gemini ──
-    return None
+    # If top two are too close → ambiguous → Gemini
+    if len(valid) > 1 and valid[0][0] - valid[1][0] < AMBIGUITY_GAP:
+        logger.debug("Ambiguous intent: %.2f vs %.2f (%s vs %s)",
+                    valid[0][0], valid[1][0],
+                    valid[0][1].get("action"), valid[1][1].get("action"))
+        return None  # → Gemini
+    
+    logger.debug("Local intent: %s (score=%.2f)", valid[0][1].get("action"), valid[0][0])
+    return valid[0][1]
