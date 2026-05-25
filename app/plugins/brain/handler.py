@@ -554,9 +554,9 @@ _MY_W       = {"my", "saya", "aku", "gue", "gw"}
 # Typo normalization
 _TYPO_MAP = {
     "jdwal": "jadwal", "jadual": "jadwal",
-    "agend": "agenda", "agin": "agenda",
+    "agend": "agenda", "agin": "agenda", "agnda": "agenda", "agendaa": "agenda",
     "bsk": "besok",
-    "tomorow": "tomorrow", "tomoro": "tomorrow", "tomorow's": "tomorrow",
+    "tomorow": "tomorrow", "tomoro": "tomorrow", "tommorow": "tomorrow", "tomorow's": "tomorrow",
     "todays": "today", "today's": "today",
     "skrg": "sekarang", "skrng": "sekarang",
     "schedual": "schedule", "schdule": "schedule",
@@ -603,6 +603,9 @@ def _has_num(t: str) -> int | None:
 
 def _score_agenda_today(t: str) -> float:
     s = 0.0
+    # If user mentions tomorrow/besok, this is NOT today
+    if _has_w(t, _TOMORROW_W):
+        return 0.0
     if _has_w(t, _AGENDA_W) and _has_w(t, _TODAY_W): s = max(s, 0.85)
     if _has_w(t, _SHOW_W) and _has_w(t, _TODAY_W): s = max(s, 0.80)
     if _has_w(t, _SHOW_W) and _has_w(t, _AGENDA_W): s = max(s, 0.80)
