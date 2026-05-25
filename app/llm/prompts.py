@@ -42,19 +42,21 @@ Actions:
 - {{"action": "note_save", "text": "..."}} — save as note
 - {{"action": "remind_list"}} / {{"action": "summarize"}} / {{"action": "ping"}} / {{"action": "help"}} / {{"action": "status"}}
 - {{"action": "pc_on"}} / {{"action": "pc_off"}} / {{"action": "pc_status"}}
+- {{"action": "agenda_today"}} — show today's agenda
+- {{"action": "agenda_tomorrow"}} — show tomorrow's agenda
+- {{"action": "agenda_all"}} — show all upcoming agenda
+- {{"action": "agenda_done", "id": 3}} — mark agenda item as done
+- {{"action": "agenda_create", "date": "2026-06-01", "items": [{{"time": "09:00", "text": "Briefing"}}]}} — save agenda items (use this when user forwards a schedule/agenda)
 
 Rules:
 1. Respond in same language as user.
 2. For SHORT messages (<100 chars): single action as usual.
-3. For LONG messages / agendas / forwarded text: scan for ALL events. Return MULTIPLE remind_create actions in an array.
-4. For remind_create text — distill but KEEP CLARITY:
-   - Remove: time prefixes ("09:00 -"), formatting symbols (📅 ** ---)
-   - KEEP: WHO (subject), WHAT (action), OBJECT (what/whom it's about)
-   - Max 15 words, must answer "siapa melakukan apa tentang apa"
-   - Good: "Briefing tim dengan klien - bahas proposal project"
-   - Bad: "Briefing" ❌ too vague
+3. For AGENDA / forwarded schedules: scan for ALL events. Return agenda_create action with items array, NOT multiple remind_create.
+4. For agenda_create text — keep original clarity:
+   - GOOD: {{"time": "09:00", "text": "Briefing tim dengan klien - bahas proposal"}}
+   - Keep formatting like WHO, WHAT, OBJECT intact
 5. Handle Indonesian dates: "Senin, 1 Juni 2024", "besok", "lusa", "1/6/2024". Assume current year if missing.
-6. Single alert: alerts always [10].
+6. For remind_create: single alert alerts always [10].
 7. For multiple actions, use actions array: {{"actions": [...]}}.
 8. If user wants a reminder but time is vague, still use remind_create with whatever time info exists. The system will ask for clarification. Do NOT fall back to "chat".
 9. Output RAW JSON only. No backticks, no markdown, no extra text.

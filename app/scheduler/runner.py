@@ -115,6 +115,24 @@ async def _send(row, text: str) -> None:
         )
 
 
+async def _send_today_agenda() -> None:
+    """Cron job at 06:00 — cleanup yesterday, send today's agenda."""
+    try:
+        from app.plugins.agenda.handler import send_today_agenda as _do
+        await _do()
+    except Exception as e:
+        logger.error("Today agenda broadcast failed: %s", e)
+
+
+async def _send_tomorrow_agenda() -> None:
+    """Cron job at 16:00 — send tomorrow's agenda."""
+    try:
+        from app.plugins.agenda.handler import send_tomorrow_agenda as _do
+        await _do()
+    except Exception as e:
+        logger.error("Tomorrow agenda broadcast failed: %s", e)
+
+
 async def start_scheduler() -> None:
     """Start the background scheduler."""
     scheduler.add_job(
@@ -124,8 +142,26 @@ async def start_scheduler() -> None:
         id="check_reminders",
         replace_existing=True,
     )
+    scheduler.add_job(
+        _send_today_agenda,
+        "cron",
+        hour=6,
+        minute=0,
+        id="agenda_today",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    scheduler.add_job(
+        _send_tomorrow_agenda,
+        "cron",
+        hour=16,
+        minute=0,
+        id="agenda_tomorrow",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
     scheduler.start()
-    logger.info("Scheduler started (5min interval)")
+    logger.info("Scheduler started (5min interval + agenda cron)")
 
 
 async def stop_scheduler() -> None:

@@ -28,6 +28,10 @@ _ACTION_MAP: dict[str, tuple[str, str | None]] = {
     "pc_on": ("script_runner", "/run relay-poweron-pc.py"),
     "pc_off": ("script_runner", "/run relay-poweroff-pc.py"),
     "pc_status": ("script_runner", "/run ping-pc.sh"),
+    "agenda_today": ("agenda", "/agenda today"),
+    "agenda_tomorrow": ("agenda", "/agenda tomorrow"),
+    "agenda_all": ("agenda", "/agenda all"),
+    "agenda_done": ("agenda", None),  # special: parsed by AgendaPlugin
 }
 
 # Actions that need validation before execution
@@ -301,6 +305,9 @@ class BrainPlugin(Plugin):
                 return await plugin.save_note(ctx.chat_id, text)
             return "📝 Note feature not available."
 
+        if action == "agenda_create":
+            return await self._handle_agenda_create(params)
+
         if action == "remind_create":
             return await self._handle_remind_create(params)
 
@@ -328,6 +335,32 @@ class BrainPlugin(Plugin):
 
         logger.debug("Unknown brain action: %s", action)
         return None
+
+    # ── Agenda create ───────────────────────────────────────────────
+
+    async def _handle_agenda_create(self, params: dict[str, Any]) -> str | None:
+        """Save agenda items via AgendaPlugin."""
+        from app.plugins.agenda.handler import AgendaPlugin
+
+        ctx = self._original_ctx
+        if not ctx:
+            return None
+
+        date_str = params.get("date", "")
+        items = params.get("items", [])
+        if not date_str or not items:
+            return "❓ Missing date or items for agenda."
+
+        plugin = PluginRegistry.get().get_plugin("agenda")
+        if isinstance(plugin, AgendaPlugin):
+            return await plugin.save_items(
+                chat_id=ctx.chat_id,
+                user_id=ctx.user_id,
+                date_str=date_str,
+                items=items,
+                alerts=params.get("alerts", [10]),
+            )
+        return "❌ Agenda plugin not available."
 
     # ── Remind create ────────────────────────────────────────────────
 

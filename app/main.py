@@ -8,6 +8,7 @@ from app.config import settings
 from app.database import init_db
 from app.llm.router import get_provider
 from app.plugins.base import PluginRegistry
+from app.plugins.agenda.handler import AgendaPlugin
 from app.plugins.brain.handler import BrainPlugin
 from app.plugins.notes.handler import NotesPlugin
 from app.plugins.reminder.handler import ReminderPlugin
@@ -44,6 +45,7 @@ async def lifespan(app: FastAPI):
         NotesPlugin(),
         SummarizerPlugin(),
         ScriptRunnerPlugin(),
+        AgendaPlugin(),
     ]
     for plugin in plugins:
         registry.register(plugin)
