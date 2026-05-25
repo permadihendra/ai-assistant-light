@@ -459,20 +459,34 @@ def _acknowledge_long(text: str) -> str:
 
 
 def _has_explicit_hour(time_str: str) -> bool:
-    """Check if a time string includes an explicit hour (not just a date keyword).
+    """Check if a time string includes an explicit hour or relative time.
     
-    'tomorrow' → False (no hour)
-    'tomorrow 09:00' → True
-    'besok' → False
-    'besok 09:00' → True
-    '20/05/2026 09:00' → True
+    Has hour/relative:
+      'tomorrow 09:00' → True (explicit time)
+      'besok 09:00' → True
+      '2m', '10m', '2h' → True (relative time — minutes/hours)
+      'in 2 hours', 'nanti 30 menit' → True
+    
+    No hour:
+      'tomorrow' → False (just a date keyword)
+      'besok' → False
+      '20/05/2026' → False
     """
-    # Has a digit followed by : or . (like 09:00, 9:00, 9.00)
     import re
+    # Relative time: \d+m (minutes), \d+h (hours), \d+s (seconds)
+    if re.search(r"\d+[smh]$", time_str):
+        return True
+    # Relative time: in/dalam/nanti X minutes/hours/menit/jam
+    if re.search(r"\b(in|dalam|nanti)\s+\d+\s*(s|m|h|seconds?|minutes?|hours?|detik|menit|jam)", time_str, re.IGNORECASE):
+        return True
+    # Has a digit followed by : or . (like 09:00, 9:00, 9.00)
     if re.search(r"\d{1,2}[:\.]\d{2}", time_str):
         return True
     # Has specific hour notation (9am, 9pm, 9 AM)
     if re.search(r"\d{1,2}\s*(am|pm)", time_str, re.IGNORECASE):
+        return True
+    # Has explicit Indonesian time (jam 9, pukul 09.00)
+    if re.search(r"\b(jam|pukul)\s+\d", time_str, re.IGNORECASE):
         return True
     # Only date keywords without digits → no hour
     return False
