@@ -206,11 +206,11 @@ All providers use raw `httpx` — no SDKs. Users select one via `LLM_PROVIDER` i
 | anthropic | `AnthropicProvider` | `ANTHROPIC_API_KEY` | claude-3-5-haiku-latest |
 | openai | `OpenAIProvider` | `OPENAI_API_KEY` | gpt-4o-mini |
 | openrouter | `OpenRouterProvider` | `OPENROUTER_API_KEY` | (user-specified) |
-| **gemini** ★ | `GeminiProvider` | `GEMINI_API_KEY` | **gemini-2.5-flash** |
+| **gemini** ★ | `GeminiProvider` | `GEMINI_API_KEY` | **gemini-2.5-flash-lite** |
 | opencode | `OpenCodeProvider` | `OPENCODE_BASE_URL` | (user-specified) |
 | zen | `OpenCodeProvider` | `ZEN_BASE_URL` | (user-specified) |
 
-> ★ **Default** — Gemini 2.5 Flash (free tier, 1,500 req/day, no credit card)
+> ★ **Default** — Gemini 2.5 Flash Lite (free tier, 1,500 req/day, no credit card)
 
 **Adding a new provider:**
 1. `app/config.py` — add `new_provider_api_key: str = ""`

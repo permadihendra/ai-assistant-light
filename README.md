@@ -33,11 +33,11 @@
 | Anthropic | `ANTHROPIC_API_KEY` | Claude 3.5 Haiku |
 | OpenAI | `OPENAI_API_KEY` | GPT-4o-mini |
 | OpenRouter | `OPENROUTER_API_KEY` | 100+ models (many free) |
-| **Google Gemini** ★ | `GEMINI_API_KEY` | **Gemini 2.5 Flash** (free tier, 1,500 req/day) |
+| **Google Gemini** ★ | `GEMINI_API_KEY` | **Gemini 2.5 Flash Lite** (free tier, 1,500 req/day) |
 | OpenCode-Go | `OPENCODE_BASE_URL` | Self-hosted or cloud |
 | Zen | `ZEN_BASE_URL` | Self-hosted, key optional |
 
-> ★ **Recommended** — Gemini 2.5 Flash is the default. Free tier needs no credit card.
+> ★ **Recommended** — Gemini 2.5 Flash Lite is the default. Free tier needs no credit card.
 
 ## AI Personality 🎭
 
