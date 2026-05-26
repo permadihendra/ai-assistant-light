@@ -46,4 +46,12 @@ class GeminiProvider(LLMProvider):
             data = resp.json()
 
         text = data["candidates"][0]["content"]["parts"][0]["text"]
-        return LLMResponse(text=text, provider=self.name, model=settings.llm_model)
+
+        usage = data.get("usageMetadata", {}) or {}
+        return LLMResponse(
+            text=text,
+            provider=self.name,
+            model=settings.llm_model,
+            input_tokens=usage.get("promptTokenCount"),
+            output_tokens=usage.get("candidatesTokenCount"),
+        )

@@ -13,6 +13,26 @@ from app.plugins.brain.context import retrieve_context
 logger = logging.getLogger(__name__)
 
 
+async def _log_token_usage(
+    chat_id: int,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+) -> None:
+    """Log Gemini token usage for cost tracking."""
+    try:
+        from app.database import get_db
+        db = await get_db()
+        await db.execute(
+            "INSERT INTO token_usage (chat_id, model, input_tokens, output_tokens, total_tokens) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (chat_id, model, input_tokens, output_tokens, input_tokens + output_tokens),
+        )
+        await db.commit()
+    except Exception as e:
+        logger.warning("Failed to log token usage: %s", e)
+
+
 class BrainPlugin(Plugin):
     name = "brain"
     commands: list[str] = []
@@ -54,6 +74,15 @@ class BrainPlugin(Plugin):
                 max_tokens=output_budget,
                 timeout=30.0,
             )
+
+            # Log token usage (if available)
+            if response.input_tokens is not None or response.output_tokens is not None:
+                await _log_token_usage(
+                    chat_id=ctx.chat_id,
+                    model=response.model,
+                    input_tokens=response.input_tokens or 0,
+                    output_tokens=response.output_tokens or 0,
+                )
 
             # Parse TOOL: calls from Gemini's response
             result = await self._process_agent_response(ctx, response.text)
