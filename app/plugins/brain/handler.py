@@ -69,26 +69,37 @@ class BrainPlugin(Plugin):
     _TOOL_RE = re.compile(r'^TOOL:\s*(\w+)\((.*)\)\s*$', re.MULTILINE)
 
     async def _process_agent_response(self, ctx: BotContext, text: str) -> str | None:
-        """Process Gemini's agent response. Extract TOOL: calls, execute them."""
-        tool_calls = self._TOOL_RE.findall(text)
+        """Process Gemini's agent response.
         
-        if not tool_calls:
-            # No tool calls — just return Gemini's conversational response
+        If there are TOOL: calls, execute them and REPLACE each TOOL: line
+        with the tool result — preserving Gemini's conversational text.
+        This keeps the bot's personality intact in a single API call.
+        """
+        if 'TOOL:' not in text:
             return text.strip()
         
-        # Execute each tool call
-        results = []
-        for tool_name, params_str in tool_calls:
-            try:
-                params = self._parse_tool_params(params_str)
-                result = await self._execute_tool(ctx, tool_name, params)
-                if result is not None:
-                    results.append(result)
-            except Exception as e:
-                logger.error("Tool '%s' failed: %s", tool_name, e)
-                results.append(f"⚠️ {tool_name} failed: {e}")
+        # Split into segments: conversational text and tool calls
+        lines = text.split('\n')
+        output_lines = []
         
-        return "\n\n".join(results) if results else None
+        for line in lines:
+            m = re.match(r'^TOOL:\s*(\w+)\((.*)\)\s*$', line.strip())
+            if m:
+                tool_name = m.group(1)
+                params_str = m.group(2)
+                try:
+                    params = self._parse_tool_params(params_str)
+                    result = await self._execute_tool(ctx, tool_name, params)
+                    if result:
+                        output_lines.append(result)
+                except Exception as e:
+                    logger.error("Tool '%s' failed: %s", tool_name, e)
+                    output_lines.append(f"⚠️ {tool_name} failed: {e}")
+            else:
+                # Conversational text from Gemini — keep it
+                output_lines.append(line)
+        
+        return '\n'.join(output_lines).strip()
 
 
     def _parse_tool_params(self, params_str: str) -> dict:
