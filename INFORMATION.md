@@ -1,6 +1,6 @@
 # ai-assistant-light — Feature Status
 
-> Project status tracker. What's built, what's coming, what's cooking.
+> Version: v0.2.0 | Project status tracker
 
 ---
 

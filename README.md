@@ -2,7 +2,8 @@
 
 > Lightweight AI assistant for Raspberry Pi 3B — Telegram bot interface, cloud LLM, extensible plugins.
 
-**Status:** ✅ Working | **Idle RAM:** ~100 MB | **Peak:** ≤ 500 MB
+**Version:** v0.2.0 | **Status:** ✅ Working
+**Idle RAM:** ~100 MB | **Peak:** ≤ 500 MB
 **Stack:** Python 3.11+ · FastAPI · SQLite · aiosqlite · httpx · APScheduler
 
 ---
