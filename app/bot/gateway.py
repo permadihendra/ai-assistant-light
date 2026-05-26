@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Request, Response
 from telegram import Update
 
-from app.bot.dispatcher import dispatch, handle_callback
+from app.bot.dispatcher import dispatch
 from app.bot.middlewares import check_rate_limit
 from app.config import settings
 from app.database import get_db
@@ -100,25 +100,6 @@ async def webhook(request: Request) -> Response:
         return Response(status_code=200)
 
     if not update:
-        return Response(status_code=200)
-
-    # ── Handle callback queries (inline keyboard taps) ─────────
-    if update.callback_query:
-        cq = update.callback_query
-        logger.info("Callback query %s from %s: %s", cq.id, cq.from_user.id, cq.data)
-
-        reply, new_keyboard = await handle_callback(cq)
-        if reply:
-            if new_keyboard is not None:
-                # Update the message with new text + keyboard
-                await _edit_message_text(
-                    cq.message.chat_id, cq.message.message_id, reply, new_keyboard
-                )
-            else:
-                # Final reply — remove keyboard, send result
-                await _edit_message_text(
-                    cq.message.chat_id, cq.message.message_id, reply
-                )
         return Response(status_code=200)
 
     # ── Handle text messages ────────────────────────────────────
