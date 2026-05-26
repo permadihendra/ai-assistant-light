@@ -106,37 +106,36 @@ async def get_report(days: int = 1) -> str:
         p = _get_price(r["model"])
         cost = r["total_input"] / 1_000_000 * p["input"] + r["total_output"] / 1_000_000 * p["output"]
         grand_usd += cost
+        avg_in = r["total_input"] // max(r["requests"], 1)
+        avg_out = r["total_output"] // max(r["requests"], 1)
         lines.append(
             f"  {r['day']}  {r['requests']} req  "
-            f"⬆{r['total_input']:,}  ⬇{r['total_output']:,}  "
+            f"input {r['total_input']:,}  output {r['total_output']:,}  "
             f"{_fmt_idr(cost)}"
         )
 
     lines.append("")
-    lines.append(f"  *Total:* {total_reqs} · {total_input:,} in / {total_output:,} out · {_fmt_idr(grand_usd)}")
+    lines.append(f"  *Total:* {total_reqs} req · {total_input:,} input / {total_output:,} output · {_fmt_idr(grand_usd)}")
 
-    # Billing note
-    lines.append(f"  💳 Billing: enabled (pay-per-token)")
-
-    # Free tier info (informational only since billing is enabled)
-    free = 1500
+    # Averages (useful metadata from actual usage)
+    avg_input = total_input // max(total_reqs, 1)
+    avg_output = total_output // max(total_reqs, 1)
     daily_avg = total_reqs / max(days, 1)
-    pct = daily_avg / free * 100
-    lines.append(f"  📋 Free tier: {free}/day · current {pct:.0f}% ({daily_avg:.0f}/day)")
-    lines.append(f"     (with billing, all requests are paid — no free quota)")
+    avg_tokens_per_req = (total_input + total_output) // max(total_reqs, 1)
+    lines.append(f"  • Avg {avg_input} input + {avg_output} output = {avg_tokens_per_req} tokens/req")
+    lines.append(f"  • Avg {daily_avg:.0f} req/day")
 
     # Monthly projection
-    monthly_reqs = daily_avg * 30
-    monthly_usd = grand_usd / max(days, 1) * 30
+    monthly_usd = grand_usd / max(days, 1) * 30.5
+    monthly_reqs = daily_avg * 30.5
     lines.append("")
-    lines.append(f"  *Projected monthly:*")
-    lines.append(f"  {monthly_reqs:.0f} requests · {_fmt_idr(monthly_usd)}")
+    lines.append(f"  *Projected monthly:* {monthly_reqs:.0f} req = {_fmt_idr(monthly_usd)}")
 
     # Rate table
     lines.append("")
-    lines.append(f"  *Rates (Flash Lite):*")
-    lines.append(f"  Input  · $0.015/1M tokens = Rp 248/1M")
-    lines.append(f"  Output · $0.075/1M tokens = Rp 1,238/1M")
-    lines.append(f"  1K req @ ~1K tokens avg = {_fmt_idr(0.000037 * 1000)}")
+    lines.append(f"  *Rates (Flash Lite)*")
+    lines.append(f"  Input  · $0.015/1M = Rp 248/1M tokens")
+    lines.append(f"  Output · $0.075/1M = Rp 1,238/1M tokens")
+    lines.append(f"  ~1K req @ 1K tokens avg = {_fmt_idr(0.000037 * 1000)}")
 
     return "\n".join(lines)
