@@ -84,7 +84,21 @@ async def get_report(days: int = 1) -> str:
     total_output = sum(r["total_output"] for r in data)
     total_reqs = sum(r["requests"] for r in data)
 
+    # Detect if any model used is Flash (non-Lite) — more expensive
+    models_used = {r["model"] for r in data}
+    has_flash = any("flash" in m and "lite" not in m for m in models_used)
+    has_flash_lite = any("lite" in m for m in models_used)
+
     lines = [f"📊 *Cost Report · Last {days} Day(s)*", ""]
+
+    # Model warning
+    if has_flash and not has_flash_lite:
+        lines.append("⚠️  Using gemini-2.5-flash (4× more expensive)")
+        lines.append("   Switch to flash-lite in .env to reduce cost")
+        lines.append("")
+    elif has_flash:
+        lines.append("⚠️  Mixed models — some requests used flash (non-Lite)")
+        lines.append("")
 
     # Per-day breakdown
     grand_usd = 0.0
@@ -92,8 +106,6 @@ async def get_report(days: int = 1) -> str:
         p = _get_price(r["model"])
         cost = r["total_input"] / 1_000_000 * p["input"] + r["total_output"] / 1_000_000 * p["output"]
         grand_usd += cost
-        pct_input = r["total_input"] / max(total_input, 1) * 100
-        pct_output = r["total_output"] / max(total_output, 1) * 100
         lines.append(
             f"  {r['day']}  {r['requests']} req  "
             f"⬆{r['total_input']:,}  ⬇{r['total_output']:,}  "
@@ -101,15 +113,30 @@ async def get_report(days: int = 1) -> str:
         )
 
     lines.append("")
-    lines.append(f"  *Total:* {total_reqs} requests · {total_input:,} in / {total_output:,} out · {_fmt_idr(grand_usd)}")
+    lines.append(f"  *Total:* {total_reqs} · {total_input:,} in / {total_output:,} out · {_fmt_idr(grand_usd)}")
 
-    # Free tier check
-    daily_avg = total_reqs / max(days, 1)
+    # Billing note
+    lines.append(f"  💳 Billing: enabled (pay-per-token)")
+
+    # Free tier info (informational only since billing is enabled)
     free = 1500
+    daily_avg = total_reqs / max(days, 1)
     pct = daily_avg / free * 100
-    if pct > 100:
-        lines.append(f"⚠️  {daily_avg:.0f}/day — exceeds free tier ({free}/day)!")
-    else:
-        lines.append(f"✅ {pct:.0f}% of free tier ({free}/day)")
+    lines.append(f"  📋 Free tier: {free}/day · current {pct:.0f}% ({daily_avg:.0f}/day)")
+    lines.append(f"     (with billing, all requests are paid — no free quota)")
+
+    # Monthly projection
+    monthly_reqs = daily_avg * 30
+    monthly_usd = grand_usd / max(days, 1) * 30
+    lines.append("")
+    lines.append(f"  *Projected monthly:*")
+    lines.append(f"  {monthly_reqs:.0f} requests · {_fmt_idr(monthly_usd)}")
+
+    # Rate table
+    lines.append("")
+    lines.append(f"  *Rates (Flash Lite):*")
+    lines.append(f"  Input  · $0.015/1M tokens = Rp 248/1M")
+    lines.append(f"  Output · $0.075/1M tokens = Rp 1,238/1M")
+    lines.append(f"  1K req @ ~1K tokens avg = {_fmt_idr(0.000037 * 1000)}")
 
     return "\n".join(lines)
