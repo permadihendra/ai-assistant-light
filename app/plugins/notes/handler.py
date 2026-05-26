@@ -135,34 +135,30 @@ class NotesPlugin(Plugin):
         from datetime import datetime, timezone, timedelta
         WIB = timezone(timedelta(hours=7))
         now = datetime.now(WIB)
-        today_str = now.strftime("%Y-%m-%d")
-        yesterday_str = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+        cutoff = now - timedelta(days=8)
 
-        lines = [f"📋 Notes · Last {len(rows)}"]
+        lines = [f"📋 Notes · Last 20"]
 
-        current_group = None
+        recent = []
+        older = []
         for row in rows:
             created = datetime.fromisoformat(row["created_at"]).astimezone(WIB)
-            date_key = created.strftime("%Y-%m-%d")
-
-            # Determine group label
-            if date_key == today_str:
-                group = "Today"
-            elif date_key == yesterday_str:
-                group = "Yesterday"
+            if created >= cutoff:
+                recent.append(row)
             else:
-                group = created.strftime("%d %b")
+                older.append(row)
 
-            if group != current_group:
-                lines.append("")
-                lines.append(f"── {group} ──")
-                current_group = group
-
-            preview = _preview(row["text"])
-            lines.append(f"#{row['id']}  {preview}")
+        for label, group in [("Recent", recent), ("Older", older)]:
+            if not group:
+                continue
+            lines.append("")
+            lines.append(f"── {label} ──")
+            for row in group:
+                preview = _preview(row["text"])
+                lines.append(f"#{row['id']}  {preview}")
 
         lines.append("")
-        lines.append("/note <id> to view  ·  /notes for all")
+        lines.append("/note <id> to view")
         return "\n".join(lines)
 
     async def _view_item(self, ctx: BotContext) -> str:
