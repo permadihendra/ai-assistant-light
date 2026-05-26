@@ -12,6 +12,12 @@
 - Gemini's conversational text preserved alongside tool results (no more robotic responses)
 - Tool handlers never return None (always user-friendly error message)
 
+### Agentic Notes (3 New Tools)
+- `note_search(query)` — FTS5 search existing notes via Gemini
+- `note_update(id, text)` — update note content
+- `note_delete(id)` — delete a note
+- Prompt updated with semantic guidelines: remind = notification, note = documentation
+
 ### Context Memory Rewrite
 - Replaced paired user↔bot system with last-10 raw messages (unfiltered)
 - Commands (/agenda, /notes, etc.) no longer filtered as noise
@@ -22,17 +28,25 @@
 - Shorter separators (35→20 chars) and cleaner formatting
 - Removed redundant icons (🔔, redundant ✅, duplicate markdown bold)
 - Compact time format: "Wed 28 May · 09:00 WIB"
-- Notes: no code blocks in preview, cleaner numbering
+- Notes: no code blocks in preview, date-grouped list (Recent / Older)
 - Help: 35→20 lines, compact grouped by function
+- Notes preview: first line only, no raw newlines
 
 ### Cost Tracking
 - Token usage logged per request from Gemini usageMetadata (100% accurate)
 - `/cost` command — inline cost report in IDR
 - Monthly projection, avg tokens/req, rate table
+- Detects expensive model usage (flash vs flash-lite)
 
 ### Model Change
 - Default: gemini-2.5-flash → gemini-2.5-flash-lite (75% cheaper)
 - `.env.example` updated accordingly
+
+### Bug Fixes
+- FTS5 queries: `SELECT id` → `SELECT rowid as id` (external content tables)
+- Timezone: `/reminders` displayed 7h behind due to naive datetime handling
+- Markdown 400 on edit: `_edit_message_text` now retries as plain text
+- Notes with `#` prefix no longer crash Markdown parsing
 
 ### Files Removed
 - `app/plugins/brain/state.py` — pending state module
@@ -43,9 +57,6 @@
 - `app/cost_tracker.py` — token logging + report generation
 - `migrations/010_token_usage.sql` — token usage table
 - `scripts/cost_report.py` — CLI cost report
-
-### Tests
-- 66 → 40 tests (19 removed — tested removed v0.2 code)
 
 ## v0.2.0 (2026-05-25)
 

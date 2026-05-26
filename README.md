@@ -2,7 +2,7 @@
 
 > Lightweight AI assistant for Raspberry Pi 3B — Telegram bot interface, cloud LLM, extensible plugins.
 
-**Version:** v0.2.0 | **Status:** ✅ Working
+**Version:** v0.3.0 | **Status:** ✅ Working
 **Idle RAM:** ~100 MB | **Peak:** ≤ 500 MB
 **Stack:** Python 3.11+ · FastAPI · SQLite · aiosqlite · httpx · APScheduler
 
@@ -12,7 +12,7 @@
 
 | Plugin | Commands / Triggers | Description |
 |---|---|---|
-| **System** | `/start`, `/help`, `/ping`, `/status` | Basic bot commands |
+| **System** | `/start`, `/help`, `/ping`, `/status`, `/cost <N>` | Basic bot commands + token cost report |
 | **Brain** _(AI Router)_ | Any free text | Understands language → routes to right plugin automatically |
 | **Web Search** | `/search <query>` or _"search for ..."_ | DuckDuckGo search (free, no API key) with optional LLM synthesis |
 | **Reminder** | `/remind <time> <msg>` or _"remind me..."_ | Set reminders with bilingual time parser (ENG/ID) |
@@ -49,41 +49,47 @@ AI_PERSONALITY=friendly, clear, concise, fun, light sarcasm
 
 Default: friendly, clear, concise, light humor and emojis.
 
-## Context-Aware Conversation Memory 🧠
+## Cost Tracking 💰
 
-The bot remembers **both sides** of your conversation — your messages AND its responses.
+Token usage logged per request from Gemini's `usageMetadata` (100% accurate).
+Type `/cost` in Telegram for inline report:
 
-| Before | After |
-|---|---|
-| ❌ Bot only saw YOUR messages | ✅ Bot sees full user↔bot pairs |
-| ❌ `/ping`, `/help` crowded context | ✅ Noise filtered out automatically |
-| ❌ "tell me more" → LLM confused | ✅ LLM references full conversation history |
-| ❌ Bot sat silent while processing | ✅ "⏳ Wait, I'm thinking…" → edit with answer |
+```
+📊 Cost Report · Last 7 Days
 
-**How it works:**
-1. Every message stored with `type='user'` or `type='bot'`
-2. Context retriever filters noise → pairs user↔bot → ranks by relevance
-3. FTS5 full-text search on past messages + notes for keyword matches
-4. Compressed to ~1500 tokens → injected into LLM prompt
+  2026-05-26  47 req  input 35,210  output 4,850  Rp 95
 
-## Smart Natural Language Understanding 🧠
+  *Total:* 47 req · 35,210 input / 4,850 output · Rp 95
+  • Avg 750 input + 103 output = 853 tokens/req
+  • Avg 7 req/day
 
-The **BrainPlugin** intercepts every free-text message and uses Gemini to understand intent:
+  *Projected monthly:* 210 req = Rp 407
 
-| You say… | Bot does… |
-|---|---|
-| "search for fastapi python" | 🔍 Web search results |
-| "remind me in 10m to check oven" | ✅ Reminder set with 10min alert |
-| "list my reminders" | 📋 Shows active reminders |
-| "turn on my pc" | 💻 GPIO relay → PC powers on |
-| "📅 SENIN, 1 JUNI 2026\n09:00 - Briefing..." | 📅 Extracts all events → multi-reminder preview |
-| "hello!" | 👋 Casual chat reply |
+  *Rates (Flash Lite)*
+  Input  · $0.015/1M = Rp 248/1M tokens
+  Output · $0.075/1M = Rp 1,238/1M tokens
+```
+
+Or via CLI: `uv run python scripts/cost_report.py --days 7`
+
+## Agentic AI Brain 🧠
+
+Every free-text message goes directly to Gemini as an **agent** with tool definitions. No keyword matching, no local intent detection, no confirmation flows.
+
+| You say… | Gemini decides… | Bot does… |
+|---|---|---|
+| "search for fastapi" | `TOOL: search(query=...)` | 🔍 Web search |
+| "remind me in 10m check oven" | `TOOL: remind_create(time=..., text=...)` | ✅ Reminder set |
+| "save this: wifi password is x" | `TOOL: note_save(text=...)` | 📝 Note saved |
+| "find note about wifi" | `TOOL: note_search(query=...)` | 🔍 Returns matching notes |
+| "update note 3 to new password" | `TOOL: note_update(id=3, text=...)` | 📝 Note updated |
+| "turn on my pc" | `TOOL: pc_on()` | 💻 GPIO relay → PC powers on |
+| "my agenda today" | `TOOL: agenda_query(date="today")` | 📋 Shows agenda |
+| "hello!" | _(no tool)_ | 👋 Casual chat reply |
 
 **Bilingual** — detects Indonesian vs English automatically. Responds in the same language.
 
-**Confirmation flow** — before creating reminders/notes, bot shows a preview and asks "yes" or "no".
-
-**Inline time picker** — if time is vague (e.g. "tomorrow" without hour), bot shows interactive buttons to pick period → hour → minute.
+**Context-aware** — remembers last 10 messages + FTS5 search across older conversations. No noise filtering, no orphan drops.
 
 ## Web Search
 
@@ -376,7 +382,7 @@ Telegram ──► Cloudflare/ngrok ──► FastAPI webhook
                                   └────┬────┘
                                        │
                                   ┌────┴────┐
-                                  │dispatch │  ← pending state → slash → brain
+                                  │dispatch │  ← slash command → brain (free text)
                                   └────┬────┘
                                        │
               ┌───────────┬───────────┼───────────┬───────────┐
@@ -388,7 +394,7 @@ Telegram ──► Cloudflare/ngrok ──► FastAPI webhook
               │
               ▼
         ┌─────────────────┐
-        │   BrainPlugin   │  ← free text → Gemini → JSON actions[]
+        │   BrainPlugin   │  ← free text → Gemini → TOOL: execution
         │  (AI Router)    │  → routes to correct plugin internally
         └─────────────────┘
               │
@@ -398,20 +404,24 @@ Telegram ──► Cloudflare/ngrok ──► FastAPI webhook
         └───────────┘
 ```
 
-**Message Flow (with BrainPlugin):**
+**Message Flow (agentic):**
 
 ```
-You: "search for fastapi"
+You: "remind me tomorrow 9am meeting"
   ↓
 BrainPlugin.handle()
+  ↓ retrieve_context (last 10 messages + FTS5)
   ↓
-Gemini 2.5 Flash
-  ↓  structured JSON
-{"action": "search", "query": "fastapi"}
+Gemini 2.5 Flash Lite (with tool definitions)
   ↓
-_routes to → WebSearchPlugin.handle("/search fastapi")
+"Got it! Setting a reminder for tomorrow at 9am🎯
+ TOOL: remind_create(time="tomorrow 09:00", text="meeting")"
   ↓
-🔍 Search results → Telegram reply
+_process_agent_response() replaces TOOL: with result
+  ↓
+"Got it! Setting a reminder for tomorrow at 9am🎯
+ ✅ Reminder #50 set!"
+  ↓ Telegram reply
 ```
 
 ---
@@ -426,7 +436,6 @@ _routes to → WebSearchPlugin.handle("/search fastapi")
 - **Secrets never logged** — `settings.*` not serialized in responses or errors
 - **Webhook secret token** — constant-time comparison against `X-Telegram-Bot-Api-Secret-Token`
 - **`ALLOWED_CHAT_IDS`** — only authorized users can run scripts or trigger PC power control
-- **Pending state cleared on restart** — no stale data, user just re-sends message
 
 ---
 
@@ -479,11 +488,17 @@ Cloud API means zero local model RAM. The Pi 3B handles this comfortably.
 | Webhook returns 401 | Secret token mismatch | Check `TELEGRAM_WEBHOOK_SECRET` matches |
 | LLM calls fail | Provider not configured | Set `GEMINI_API_KEY` (or other provider key) in `.env` |
 | Script runner blocked | `ALLOWED_CHAT_IDS` not set | Add your Telegram user ID |
-| "No pending actions" when saying yes | Pending state timed out | Just send the original request again |
+| Agentic flow broken | Gemini returned unexpected response | Check Gemini API status; retry message |
 | Brain doesn't route to search | Gemini returned "chat" action | Try explicit `/search <query>` as fallback |
 | PC control says script not found | Scripts path issue | Ensure `scripts/` exists relative to working directory |
 | Cloudflare Tunnel 500 error | Transient trycloudflare issue | Retry — usually works on second attempt |
 | Reminder says "time must be in future" | Time already passed today | Use tomorrow or a later time
+
+---
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ---
 
