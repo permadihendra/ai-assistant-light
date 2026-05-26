@@ -1,5 +1,52 @@
 # Changelog
 
+---
+
+## v0.3.0 (2026-05-26)
+
+### Agentic Architecture (Phase 1 + 2)
+- Removed all v0.2 dead code: local intent detection, pending state, picker, JSON action parsing
+- Removed confirmation flows (Ask class, _validate_and_route, _handle_missing_params)
+- Removed callback query / inline keyboard handling
+- Single agentic flow: all non-command messages → Gemini → TOOL: call → execute → respond
+- Gemini's conversational text preserved alongside tool results (no more robotic responses)
+- Tool handlers never return None (always user-friendly error message)
+
+### Context Memory Rewrite
+- Replaced paired user↔bot system with last-10 raw messages (unfiltered)
+- Commands (/agenda, /notes, etc.) no longer filtered as noise
+- FTS5 demoted to supplement (recent messages always prioritized)
+- No orphan message drops
+
+### Mobile-First UI
+- Shorter separators (35→20 chars) and cleaner formatting
+- Removed redundant icons (🔔, redundant ✅, duplicate markdown bold)
+- Compact time format: "Wed 28 May · 09:00 WIB"
+- Notes: no code blocks in preview, cleaner numbering
+- Help: 35→20 lines, compact grouped by function
+
+### Cost Tracking
+- Token usage logged per request from Gemini usageMetadata (100% accurate)
+- `/cost` command — inline cost report in IDR
+- Monthly projection, avg tokens/req, rate table
+
+### Model Change
+- Default: gemini-2.5-flash → gemini-2.5-flash-lite (75% cheaper)
+- `.env.example` updated accordingly
+
+### Files Removed
+- `app/plugins/brain/state.py` — pending state module
+- `app/plugins/brain/picker.py` — inline keyboard time picker
+- `tests/test_plugins/test_state.py`
+
+### Files Added
+- `app/cost_tracker.py` — token logging + report generation
+- `migrations/010_token_usage.sql` — token usage table
+- `scripts/cost_report.py` — CLI cost report
+
+### Tests
+- 66 → 40 tests (19 removed — tested removed v0.2 code)
+
 ## v0.2.0 (2026-05-25)
 
 ### Context-Aware Memory

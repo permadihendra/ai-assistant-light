@@ -130,42 +130,32 @@ response after LLM finishes. No more awkward silence.
 | `remind_list` | reminder | `/reminders` |
 | `summarize` | summarizer | `/summarize` |
 | `note_save` | notes | Saves via `plugin.save_note()` |
-| `ping` / `help` / `status` | system | `/ping` / `/help` / `/status` |
+| `ping` / `help` / `status` / `cost` | system | `/ping` / `/help` / `/status` / `/cost 7` |
 | `pc_on` / `pc_off` / `pc_status` | script_runner | `/run relay-poweron-pc.py` etc. |
+| `cost_report` | system | `/cost 7` — inline token usage + IDR report |
 
 **Brain sub-modules:**
 - `app/plugins/brain/state.py` — in-memory pending state per chat (lost on restart — safe)
 - `app/plugins/brain/picker.py` — inline keyboard time picker (period → hour → minute)
 
-**Local Intent Detection (Confidence Scoring):**
-Before calling Gemini, BrainPlugin tries local intent detection:
+**Agentic Flow (v0.3):**
+All non-command messages go directly to Gemini with tool definitions:
 
 ```
-User message → _detect_local_intent()
-  ├─ Score ALL features independently (0.0 - 1.0)
-  │  Agenda | Remind | Notes | Search | PC | Help
-  ├─ Filter: keep only scores ≥ 0.75
-  ├─ Ambiguous? (top 2 within 0.15) → fallback Gemini
-  └─ Clear winner? → route directly (0 API call)
+User message → retrieve_context (last 10 messages + FTS5 supplement)
+  ↓
+Gemini agent prompt + tool definitions (remind_create, agenda_query, search, etc.)
+  ↓
+Gemini responds:
+  ├─ "Hello!" → returned directly as conversational text
+  └─ "Got it! ✨ TOOL: remind_create(time=..., text=...)"
+       ↓
+     TOOL: line replaced with tool result, conversational text preserved
+       ↓
+     Full response returned to user
 ```
 
-Supported intents (EN + ID + mixed):
-| Feature | EN Keywords | ID Keywords |
-|---|---|---|
-| Agenda Today | schedule today, my agenda | agenda hari ini, jadwal |
-| Agenda Tomorrow | tomorrow's schedule | jadwal besok |
-| Agenda All | all agenda, everything | semua agenda |
-| Done | done 3, mark complete | selesai nomor 2, tandai |
-| Remind Create | remind me in 10m, set reminder | ingatkan jam 5, ingetin |
-| Remind List | my reminders, list reminders | reminder saya, daftar reminder |
-| Note Save | save this, remember this | catat, simpen, ingat ini |
-| Note List | my notes, show notes | catatan saya, daftar catatan |
-| Search | search about, find | cari tentang, googling |
-| PC On | turn on pc, start computer | hidupkan pc, nyalakan komputer |
-| PC Off | turn off, shutdown | matikan, shutdown |
-| PC Status | pc status, is my pc on | status pc, pc nyala |
-
-**Bilingual:** Detects Indonesian/English from message keywords. Responds in same language.
+No local intent detection, no confirmation flows, no pending state.
 
 ### AgendaPlugin 📋
 
