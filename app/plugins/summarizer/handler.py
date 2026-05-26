@@ -82,7 +82,7 @@ class SummarizerPlugin(Plugin):
         )
         await db.commit()
 
-        return f"📊 *Summary of last {len(rows)} messages:*\n\n{summary}"
+        return f"📊 Summary · {len(rows)} messages\n\n{summary}"
 
     async def _get_last_summary(self, ctx: BotContext) -> str:
         db = await get_db()

@@ -157,9 +157,9 @@ def _parse_time(text: str) -> datetime | None:
 
 
 def _fmt_time(dt: datetime) -> str:
-    """Format a datetime to readable WIB time."""
+    """Format a datetime to compact WIB time."""
     local = dt.astimezone(WIB)
-    return local.strftime("%a, %d %b %Y at %H:%M")
+    return local.strftime("%a %d %b · %H:%M WIB")
 
 
 class ReminderPlugin(Plugin):
@@ -206,7 +206,7 @@ class ReminderPlugin(Plugin):
         rid = c.lastrowid
         await db.commit()
 
-        return f"✅ *Reminder #{rid} set!*\n📋 {message}\n⏰ {_fmt_time(remind_at)}\n🔔 10min before"
+        return f"✅ Reminder #{rid}\n{message}\n⏰ {_fmt_time(remind_at)}"
 
     # ── CREATE via BrainPlugin (inserts source_text) ──────────────
 
@@ -229,7 +229,7 @@ class ReminderPlugin(Plugin):
         rid = c.lastrowid
         await db.commit()
 
-        return f"✅ *Reminder #{rid} set!*\n📋 {text}\n⏰ {_fmt_time(remind_at)}\n🔔 10min before\n📎 Use /note {rid} for source."
+        return f"✅ Reminder #{rid}\n{text}\n⏰ {_fmt_time(remind_at)}\n📎 /note {rid} for source"
 
     # ── LIST ──────────────────────────────────────────────────────
 
@@ -243,23 +243,22 @@ class ReminderPlugin(Plugin):
         rows = await cursor.fetchall()
 
         if not rows:
-            return "📭 No active reminders."
+            return "📭 No reminders"
 
-        sep = "─" * 35
+        sep = "─" * 20
         blocks = []
         for r in rows:
             dt = datetime.fromisoformat(r["remind_at"])
             local = dt.astimezone(WIB)
-            time_str = local.strftime("%a, %d %b %Y at %H:%M")
+            time_str = local.strftime("%a %d %b · %H:%M WIB")
             preview = r["text"]
             blocks.append(
-                f"#{r['id']} {preview}\n"
-                f"   ⏰ {time_str}\n"
-                f"   🔔 10min before"
+                f"#{r['id']}  {preview}\n"
+                f"  ⏰ {time_str}"
             )
 
-        header = "📋 *Your Reminders*"
-        hint = "`/cancel <id>` to remove  ·  `/note <id>` for source"
+        header = "📋 Reminders"
+        hint = "/cancel <id> to remove"
         body = f"\n{sep}\n".join(blocks)
 
         return f"{header}\n{hint}\n{body}"
@@ -279,7 +278,7 @@ class ReminderPlugin(Plugin):
 
         await db.execute("DELETE FROM reminders WHERE id=?", (rid,))
         await db.commit()
-        return f"✅ Cancelled reminder `{rid}`."
+        return f"✅ Reminder #{rid} cancelled"
 
     # ── SOURCE (called by NotesPlugin or directly) ────────────────
 
@@ -294,9 +293,9 @@ class ReminderPlugin(Plugin):
         if not r:
             return None
 
-        lines = [f"📌 *Reminder #{r['id']} — source*"]
+        lines = [f"📌 Reminder #{r['id']}"]
         lines.append(f"⏰ {_fmt_time(datetime.fromisoformat(r['remind_at']))}")
-        lines.append(f"📋 {r['text']}")
+        lines.append(f"{r['text']}")
 
         src = (r["source_text"] or "").strip()
         if src:

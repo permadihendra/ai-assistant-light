@@ -34,7 +34,7 @@ class WebSearchPlugin(Plugin):
         try:
             results = await self._fetch_results(query)
             if not results:
-                return f"🔍 *{query}*\n\nNo results found."
+                return f"🔍 {query}\n\nNo results"
 
             reply = self._format_results(query, results)
 
@@ -69,12 +69,12 @@ class WebSearchPlugin(Plugin):
         return results
 
     def _format_results(self, query: str, results: list[dict[str, Any]]) -> str:
-        lines = [f"🔍 *{query}*"]
+        lines = [f"🔍 {query}"]
         for i, r in enumerate(results[: settings.search_results or 5], 1):
             title = r.get("title", "Untitled")
             url = r.get("href", "")
             desc = r.get("body", "")
-            snippet = f" — {desc[:150]}" if desc else ""
+            snippet = f"  {desc[:150]}" if desc else ""
             lines.append(f"{i}. [{title}]({url}){snippet}")
         return "\n".join(lines)
 

@@ -34,11 +34,11 @@ class NotesPlugin(Plugin):
         note_id = cursor.lastrowid
         await db.commit()
 
-        preview = note_text[:60] + "..." if len(note_text) > 60 else note_text
+        preview = note_text[:80] + "..." if len(note_text) > 80 else note_text
         return (
-            f"📝 *Note #{note_id} saved* ✅\n"
-            f"```\n{preview}\n```\n"
-            f"Use `/notes` to see all."
+            f"📝 Note #{note_id}\n"
+            f"{preview}\n"
+            f"/notes to view"
         )
 
     async def _list_notes(self, ctx: BotContext) -> str:
@@ -51,12 +51,12 @@ class NotesPlugin(Plugin):
         rows = list(await cursor.fetchall())
 
         if not rows:
-            return "📭 No notes yet."
+            return "📭 No notes"
 
-        lines = ["📋 *Your notes:*"]
+        lines = ["📋 Notes"]
         for row in rows:
             preview = row["text"][:80] + "..." if len(row["text"]) > 80 else row["text"]
-            lines.append(f"  `{row['id']:>3}` — {preview}")
+            lines.append(f"{row['id']}. {preview}")
         return "\n".join(lines)
 
     async def _view_item(self, ctx: BotContext) -> str:
@@ -74,7 +74,7 @@ class NotesPlugin(Plugin):
         )
         row = await cursor.fetchone()
         if row:
-            return f"📝 *Note `{row['id']}`:*\n\n{row['text']}"
+            return f"📝 Note #{row['id']}\n\n{row['text']}"
 
         # Fallback to reminders table — show source
         from app.plugins.reminder.handler import ReminderPlugin

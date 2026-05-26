@@ -17,12 +17,12 @@ from app.plugins.base import BotContext, Plugin
 logger = logging.getLogger(__name__)
 
 WIB = timezone(timedelta(hours=7))
-_SEP = "━━━━━━━━━━━━━━━━━━━━━━━━━━"
+_SEP = "━" * 20
 
 
 def _fmt_date(dt: datetime) -> str:
     """Format date with day name."""
-    return dt.astimezone(WIB).strftime("%a, %d %b %Y")
+    return dt.astimezone(WIB).strftime("%a %d %b %Y")
 
 
 def _fmt_time_short(dt: datetime) -> str:
@@ -69,16 +69,10 @@ def _build_agenda_report(
     is_today: bool = True,
 ) -> str:
     """Build formatted agenda report with ☐/☑ markers."""
-    lines = [f"📋 *{title}*", _SEP, date_label, ""]
+    lines = [f"📋 {title}", _SEP, date_label, ""]
 
     if not items:
-        if is_today:
-            lines.append("📭 No agenda items for today.")
-            lines.append("")
-            lines.append("Kirim agenda baru atau forward pesan")
-            lines.append("berisi jadwal, saya akan simpan otomatis.")
-        else:
-            lines.append("📭 Besok kosong — santai dulu aja 😎")
+        lines.append("📭 No items" if is_today else "📭 Nothing scheduled")
         lines.append(_SEP)
         return "\n".join(lines)
 
@@ -87,17 +81,15 @@ def _build_agenda_report(
     for item in items:
         if item.get("done"):
             done_count += 1
-            lines.append(f"  ☑ {item['time']} · {item['text']} ✓")
+            lines.append(f"  ☑ {item['time']}  {item['text']}")
         else:
             active_count += 1
-            lines.append(f"  ☐ {item['time']} · {item['text']}")
+            lines.append(f"  ☐ {item['time']}  {item['text']}")
 
     total = active_count + done_count
     lines.append("")
     lines.append(_SEP)
-    lines.append(f"📌 {total} items · ☑ {done_count} done · ☐ {active_count} active")
-    if active_count > 0:
-        lines.append('Reply `done <id>` to check off')
+    lines.append(f"📌 {total} items · {done_count} done")
 
     return "\n".join(lines)
 
@@ -255,7 +247,7 @@ async def get_all_agenda(chat_id: int) -> str | None:
             "done": bool(r["fired"]),
         })
 
-    lines = ["📋 *All Agenda*", _SEP, ""]
+    lines = ["📋 All Agenda", _SEP, ""]
     total = 0
     done_total = 0
 
@@ -277,14 +269,14 @@ async def get_all_agenda(chat_id: int) -> str | None:
             total += 1
             if item["done"]:
                 done_total += 1
-                lines.append(f"  ☑ {item['time']} · {item['text']} ✓")
+                lines.append(f"  ☑ {item['time']}  {item['text']}")
             else:
-                lines.append(f"  ☐ {item['time']} · {item['text']}")
+                lines.append(f"  ☐ {item['time']}  {item['text']}")
         lines.append("")
 
     active = total - done_total
     lines.append(_SEP)
-    lines.append(f"📌 {total} items · ☑ {done_total} done · ☐ {active} active")
+    lines.append(f"📌 {total} items · {done_total} done")
     return "\n".join(lines)
 
 
@@ -297,10 +289,7 @@ async def mark_done_by_id(chat_id: int, reminder_id: int) -> str:
         return f"☑️ Item `{reminder_id}` already done."
 
     ok = await _mark_done(chat_id, reminder_id)
-    if ok:
-        text_preview = item["text"][:60]
-        return f"☑️ *Done!* `{reminder_id}` · {text_preview}"
-    return "❌ Could not mark done."
+    return f"☑️ Agenda #{reminder_id} done" if ok else "❌ Could not mark done."
 
 
 async def mark_done_all_today(chat_id: int) -> str:
@@ -308,9 +297,7 @@ async def mark_done_all_today(chat_id: int) -> str:
     now = datetime.now(WIB)
     today_str = _agenda_date(now)
     count = await _mark_all_done(chat_id, today_str)
-    if count > 0:
-        return f"☑️ *Done!* Marked {count} item{'s' if count > 1 else ''} as done."
-    return "📭 No active items today."
+    return f"☑️ All {count} done" if count > 0 else "📭 No active items today."
 
 
 # ── Plugin class ────────────────────────────────────────
