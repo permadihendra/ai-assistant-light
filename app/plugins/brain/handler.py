@@ -97,16 +97,117 @@ class BrainPlugin(Plugin):
                 timeout=30.0,
             )
 
-            actions = self._parse_actions(response.text)
-            if not actions:
-                return _acknowledge_long(ctx.message_text)
-
-            return await self._validate_and_route(ctx, actions)
+            # Parse TOOL: calls from Gemini's response
+            result = await self._process_agent_response(ctx, response.text)
+            return result
 
         except Exception as e:
             logger.error("Brain failed: %s", e, exc_info=True)
             # Acknowledge so user knows message wasn't lost
             return _acknowledge_long(ctx.message_text)
+
+    # ── Agent response processing ────────────────────────────────────
+
+    _TOOL_RE = re.compile(r'^TOOL:\s*(\w+)\((.*)\)\s*$', re.MULTILINE)
+
+    async def _process_agent_response(self, ctx: BotContext, text: str) -> str | None:
+        """Process Gemini's agent response. Extract TOOL: calls, execute them."""
+        tool_calls = self._TOOL_RE.findall(text)
+        
+        if not tool_calls:
+            # No tool calls — just return Gemini's conversational response
+            return text.strip()
+        
+        # Execute each tool call
+        results = []
+        for tool_name, params_str in tool_calls:
+            try:
+                params = self._parse_tool_params(params_str)
+                result = await self._execute_tool(ctx, tool_name, params)
+                results.append(result)
+            except Exception as e:
+                logger.error("Tool '%s' failed: %s", tool_name, e)
+                results.append(f"⚠️ {tool_name} failed: {e}")
+        
+        return "\n\n".join(results) if results else None
+
+
+    def _parse_tool_params(self, params_str: str) -> dict:
+        """Parse 'key="value", key2="value2' into dict."""
+        params = {}
+        for match in re.finditer(r'(\w+)=["\']([^"\']*)["\']', params_str):
+            params[match.group(1)] = match.group(2)
+        return params
+
+
+    async def _execute_tool(self, ctx: BotContext, tool: str, params: dict) -> str:
+        """Execute a tool call by routing to the appropriate plugin."""
+        from app.plugins.base import PluginRegistry
+        
+        if tool == "remind_create":
+            return await self._handle_remind_create({
+                "text": params.get("text", ""),
+                "time": params.get("time", ""),
+                "alerts": [10],
+                "source_text": ctx.message_text,
+            })
+        
+        if tool == "agenda_query":
+            date = params.get("date", "today")
+            if date == "all":
+                return await self._route_single("agenda_all", {})
+            elif date == "tomorrow":
+                return await self._route_single("agenda_tomorrow", {})
+            else:
+                return await self._route_single("agenda_today", {})
+        
+        if tool == "agenda_create":
+            items_str = params.get("items", "[]")
+            try:
+                items = json.loads(items_str)
+            except json.JSONDecodeError:
+                items = []
+            return await self._handle_agenda_create({
+                "date": params.get("date", ""),
+                "items": items,
+            })
+        
+        if tool == "agenda_done":
+            plugin = PluginRegistry.get().get_plugin("agenda")
+            if plugin:
+                try:
+                    rid = int(params.get("id", 0))
+                    return await plugin.mark_done_by_id(ctx.chat_id, rid)
+                except ValueError:
+                    return "❌ Invalid ID."
+            return "❌ Agenda plugin not available."
+        
+        if tool == "search":
+            return await self._route_single("search", {"query": params.get("query", "")})
+        
+        if tool == "note_save":
+            plugin = PluginRegistry.get().get_plugin("notes")
+            if plugin:
+                return await plugin.save_note(
+                    ctx.chat_id, params.get("text", ctx.message_text)
+                )
+            return "📝 Note feature not available."
+        
+        if tool == "note_list":
+            return await self._route_single("note_list", {})
+        
+        if tool == "summarize":
+            return await self._route_single("summarize", {})
+        
+        if tool in ("pc_on", "pc_off", "pc_status"):
+            return await self._route_single(tool, {})
+        
+        if tool == "remind_list":
+            return await self._route_single("remind_list", {})
+        
+        logger.warning("Unknown tool: %s", tool)
+        return f"❓ Unknown tool: {tool}"
+
 
     # ── Provider ──────────────────────────────────────────────────────
 
@@ -116,7 +217,7 @@ class BrainPlugin(Plugin):
         except RuntimeError:
             return None
 
-    # ── JSON parsing ──────────────────────────────────────────────────
+    # ── JSON parsing (kept for backward compat) ───────────────────────
 
     def _parse_actions(self, text: str) -> list[dict[str, Any]] | None:
         text = text.strip()
