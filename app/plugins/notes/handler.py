@@ -6,6 +6,14 @@ from app.plugins.base import BotContext, Plugin, PluginRegistry
 logger = logging.getLogger(__name__)
 
 
+def _preview(text: str, max_len: int = 60) -> str:
+    """Clean first line of note text for preview."""
+    first_line = text.split('\n')[0].strip()
+    if len(first_line) > max_len:
+        return first_line[:max_len-3] + "..."
+    return first_line
+
+
 class NotesPlugin(Plugin):
     name = "notes"
     commands = ["notes", "note"]
@@ -34,7 +42,7 @@ class NotesPlugin(Plugin):
         note_id = cursor.lastrowid
         await db.commit()
 
-        preview = note_text[:80] + "..." if len(note_text) > 80 else note_text
+        preview = _preview(note_text, 80)
         return (
             f"📝 Note #{note_id}\n"
             f"{preview}\n"
@@ -54,7 +62,7 @@ class NotesPlugin(Plugin):
         db = await get_db()
         try:
             cursor = await db.execute(
-                "SELECT id, text, created_at FROM notes_fts "
+                "SELECT rowid as id, text FROM notes_fts "
                 "WHERE notes_fts MATCH ? AND chat_id = ? "
                 "ORDER BY rank LIMIT 5",
                 (keywords, chat_id),
@@ -68,8 +76,7 @@ class NotesPlugin(Plugin):
 
         lines = [f"🔍 *Found {len(rows)} note(s)*"]
         for r in rows:
-            preview = r["text"][:80] + "..." if len(r["text"]) > 80 else r["text"]
-            lines.append(f"  #{r['id']} · {preview}")
+            lines.append(f"  #{r['id']} · {_preview(r['text'])}")
         return "\n".join(lines)
 
     async def update_note(self, chat_id: int, note_id: str, new_text: str) -> str:
@@ -125,10 +132,37 @@ class NotesPlugin(Plugin):
         if not rows:
             return "📭 No notes"
 
-        lines = ["📋 Notes"]
+        from datetime import datetime, timezone, timedelta
+        WIB = timezone(timedelta(hours=7))
+        now = datetime.now(WIB)
+        today_str = now.strftime("%Y-%m-%d")
+        yesterday_str = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        lines = [f"📋 Notes · Last {len(rows)}"]
+
+        current_group = None
         for row in rows:
-            preview = row["text"][:80] + "..." if len(row["text"]) > 80 else row["text"]
-            lines.append(f"{row['id']}. {preview}")
+            created = datetime.fromisoformat(row["created_at"]).astimezone(WIB)
+            date_key = created.strftime("%Y-%m-%d")
+
+            # Determine group label
+            if date_key == today_str:
+                group = "Today"
+            elif date_key == yesterday_str:
+                group = "Yesterday"
+            else:
+                group = created.strftime("%d %b")
+
+            if group != current_group:
+                lines.append("")
+                lines.append(f"── {group} ──")
+                current_group = group
+
+            preview = _preview(row["text"])
+            lines.append(f"#{row['id']}  {preview}")
+
+        lines.append("")
+        lines.append("/note <id> to view  ·  /notes for all")
         return "\n".join(lines)
 
     async def _view_item(self, ctx: BotContext) -> str:
