@@ -158,6 +158,8 @@ def _parse_time(text: str) -> datetime | None:
 
 def _fmt_time(dt: datetime) -> str:
     """Format a datetime to compact WIB time."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     local = dt.astimezone(WIB)
     return local.strftime("%a %d %b · %H:%M WIB")
 
@@ -249,6 +251,8 @@ class ReminderPlugin(Plugin):
         blocks = []
         for r in rows:
             dt = datetime.fromisoformat(r["remind_at"])
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
             local = dt.astimezone(WIB)
             time_str = local.strftime("%a %d %b · %H:%M WIB")
             preview = r["text"]
