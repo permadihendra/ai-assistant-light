@@ -4,6 +4,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from app.cost_tracker import log_usage as _log_token_usage
 from app.llm.base import LLMMessage
 from app.llm.prompts import BRAIN_SYSTEM_PROMPT
 from app.llm.router import get_provider
@@ -11,26 +12,6 @@ from app.plugins.base import BotContext, Plugin, PluginRegistry
 from app.plugins.brain.context import retrieve_context
 
 logger = logging.getLogger(__name__)
-
-
-async def _log_token_usage(
-    chat_id: int,
-    model: str,
-    input_tokens: int,
-    output_tokens: int,
-) -> None:
-    """Log Gemini token usage for cost tracking."""
-    try:
-        from app.database import get_db
-        db = await get_db()
-        await db.execute(
-            "INSERT INTO token_usage (chat_id, model, input_tokens, output_tokens, total_tokens) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (chat_id, model, input_tokens, output_tokens, input_tokens + output_tokens),
-        )
-        await db.commit()
-    except Exception as e:
-        logger.warning("Failed to log token usage: %s", e)
 
 
 class BrainPlugin(Plugin):

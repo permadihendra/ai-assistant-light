@@ -1,10 +1,11 @@
+from app.cost_tracker import get_report
 from app.plugins.base import BotContext, Plugin, PluginRegistry
 
 
 class SystemPlugin(Plugin):
     name = "system"
-    commands = ["start", "help", "ping", "status"]
-    description = "Basic bot commands — ping, help, status"
+    commands = ["start", "help", "ping", "status", "cost"]
+    description = "Basic bot commands — ping, help, status, cost"
 
     async def handle(self, ctx: BotContext) -> str | None:
         cmd = ctx.message_text.strip().split()[0].split("@")[0].lower()
@@ -29,6 +30,17 @@ class SystemPlugin(Plugin):
                 f"👤 Your ID: `{ctx.user_id}`\n"
             )
 
+        if cmd == "/cost":
+            # Parse optional day count: /cost 7, /cost 30
+            rest = ctx.message_text[len("/cost"):].strip()
+            days = 7
+            if rest:
+                try:
+                    days = max(1, min(365, int(rest)))
+                except ValueError:
+                    pass
+            return await get_report(days)
+
         return None
 
     def _build_help(self) -> str:
@@ -51,7 +63,7 @@ class SystemPlugin(Plugin):
             "/summarize · /lastsummary",
             "",
             "⚙️ System",
-            "/ping · /status · /start",
+            "/ping · /status · /cost <N> · /start",
             "",
             "🧠 AI Brain",
             "Free text → bot understands:",
