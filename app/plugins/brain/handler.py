@@ -124,7 +124,8 @@ class BrainPlugin(Plugin):
             try:
                 params = self._parse_tool_params(params_str)
                 result = await self._execute_tool(ctx, tool_name, params)
-                results.append(result)
+                if result is not None:
+                    results.append(result)
             except Exception as e:
                 logger.error("Tool '%s' failed: %s", tool_name, e)
                 results.append(f"⚠️ {tool_name} failed: {e}")
@@ -133,10 +134,66 @@ class BrainPlugin(Plugin):
 
 
     def _parse_tool_params(self, params_str: str) -> dict:
-        """Parse 'key="value", key2="value2' into dict."""
+        """Parse tool parameters. Handles quoted strings AND nested JSON."""
         params = {}
-        for match in re.finditer(r'(\w+)=["\']([^"\']*)["\']', params_str):
-            params[match.group(1)] = match.group(2)
+        i = 0
+        while i < len(params_str):
+            # Skip whitespace and commas
+            while i < len(params_str) and params_str[i] in ' ,':
+                i += 1
+            if i >= len(params_str):
+                break
+            # Find key
+            m = re.match(r'(\w+)=', params_str[i:])
+            if not m:
+                i += 1
+                continue
+            key = m.group(1)
+            i += len(m.group(0))
+            # Skip whitespace before value
+            while i < len(params_str) and params_str[i] in ' \t':
+                i += 1
+            if i >= len(params_str):
+                break
+            # Determine value type by first char
+            c = params_str[i]
+            if c in '"\'':
+                # Quoted string
+                quote = c
+                i += 1
+                val_start = i
+                while i < len(params_str) and params_str[i] != quote:
+                    i += 1
+                params[key] = params_str[val_start:i]
+                i += 1
+            elif c == '[':
+                # JSON array — track bracket depth
+                depth = 0
+                val_start = i
+                while i < len(params_str):
+                    if params_str[i] == '[': depth += 1
+                    elif params_str[i] == ']': depth -= 1
+                    i += 1
+                    if depth == 0:
+                        break
+                params[key] = params_str[val_start:i]
+            elif c == '{':
+                # JSON object — track brace depth
+                depth = 0
+                val_start = i
+                while i < len(params_str):
+                    if params_str[i] == '{': depth += 1
+                    elif params_str[i] == '}': depth -= 1
+                    i += 1
+                    if depth == 0:
+                        break
+                params[key] = params_str[val_start:i]
+            else:
+                # Unquoted simple value
+                val_start = i
+                while i < len(params_str) and params_str[i] not in ' ,':
+                    i += 1
+                params[key] = params_str[val_start:i].strip()
         return params
 
 
@@ -165,8 +222,13 @@ class BrainPlugin(Plugin):
             items_str = params.get("items", "[]")
             try:
                 items = json.loads(items_str)
-            except json.JSONDecodeError:
-                items = []
+            except (json.JSONDecodeError, TypeError):
+                # Try replacing dot time separators with colon
+                items_str_fixed = items_str.replace('"', '"')
+                try:
+                    items = json.loads(items_str_fixed)
+                except json.JSONDecodeError:
+                    items = []
             return await self._handle_agenda_create({
                 "date": params.get("date", ""),
                 "items": items,
@@ -494,6 +556,8 @@ class BrainPlugin(Plugin):
 
         text = params.get("text", "")
         time_str = params.get("time", "")
+        # Normalize dot separators to colon (10.30 → 10:30)
+        time_str = re.sub(r'(\d{1,2})\.(\d{2})', r'\1:\2', time_str)
         alerts = params.get("alerts", [10])
         source_text = params.get("source_text", "")
 
