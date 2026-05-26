@@ -60,7 +60,12 @@ async def _edit_message_text(chat_id: int, message_id: int, text: str, keyboard=
         payload["reply_markup"] = json.loads(keyboard) if isinstance(keyboard, str) else keyboard
 
     async with httpx.AsyncClient(timeout=10.0) as client:
-        await client.post(url, json=payload)
+        resp = await client.post(url, json=payload)
+        # If markdown fails (400), retry as plain text
+        if resp.status_code == 400:
+            logger.warning("Markdown edit failed, retrying as plain text")
+            payload.pop("parse_mode", None)
+            await client.post(url, json=payload)
 
 
 async def _send_with_keyboard(chat_id: int, text: str, keyboard) -> None:

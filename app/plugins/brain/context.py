@@ -135,11 +135,11 @@ async def search_fts_messages(
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT id, text, type, username, created_at FROM messages_fts "
+            "SELECT rowid as id, text FROM messages_fts "
             "WHERE messages_fts MATCH ? AND chat_id = ? "
-            "AND created_at >= datetime('now', '-48 hours') "
+            "AND rowid IN (SELECT id FROM messages WHERE created_at >= datetime('now', '-48 hours') AND chat_id = ?) "
             "ORDER BY rank LIMIT ?",
-            (keywords, chat_id, limit),
+            (keywords, chat_id, chat_id, limit),
         )
         rows = await cursor.fetchall()
     except Exception as e:
@@ -150,9 +150,9 @@ async def search_fts_messages(
         {
             "id": r["id"],
             "text": _compact_text(r["text"], 300),
-            "type": r["type"] or "user",
-            "username": r["username"] or ("Bot" if (r["type"] == "bot") else "User"),
-            "time": _fmt_time(r["created_at"]),
+            "type": "user",
+            "username": "User",
+            "time": "",
         }
         for r in rows
     ]
@@ -170,7 +170,7 @@ async def search_notes(
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT id, text, created_at FROM notes_fts "
+            "SELECT rowid as id, text FROM notes_fts "
             "WHERE notes_fts MATCH ? AND chat_id = ? "
             "ORDER BY rank LIMIT ?",
             (keywords, chat_id, limit),
@@ -184,7 +184,7 @@ async def search_notes(
         {
             "id": r["id"],
             "text": _compact_text(r["text"], 300),
-            "time": _fmt_time(r["created_at"]),
+            "time": "",
         }
         for r in rows
     ]
