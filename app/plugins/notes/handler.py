@@ -41,6 +41,78 @@ class NotesPlugin(Plugin):
             f"/notes to view"
         )
 
+    async def search_notes(self, chat_id: int, query: str) -> str:
+        """Search notes by keyword via FTS5."""
+        if not query.strip():
+            return "🔍 What should I search for?"
+
+        from app.plugins.brain.context import _extract_keywords
+        keywords = _extract_keywords(query)
+        if not keywords:
+            return f"🔍 No results for '{query}'"
+
+        db = await get_db()
+        try:
+            cursor = await db.execute(
+                "SELECT id, text, created_at FROM notes_fts "
+                "WHERE notes_fts MATCH ? AND chat_id = ? "
+                "ORDER BY rank LIMIT 5",
+                (keywords, chat_id),
+            )
+            rows = await cursor.fetchall()
+        except Exception:
+            rows = []
+
+        if not rows:
+            return f"🔍 No notes match '{query}'"
+
+        lines = [f"🔍 *Found {len(rows)} note(s)*"]
+        for r in rows:
+            preview = r["text"][:80] + "..." if len(r["text"]) > 80 else r["text"]
+            lines.append(f"  #{r['id']} · {preview}")
+        return "\n".join(lines)
+
+    async def update_note(self, chat_id: int, note_id: str, new_text: str) -> str:
+        """Update a note's content."""
+        try:
+            nid = int(note_id)
+        except (ValueError, TypeError):
+            return "❌ Invalid note ID."
+
+        if not new_text.strip():
+            return "📝 Can't save an empty note."
+
+        db = await get_db()
+        cursor = await db.execute(
+            "UPDATE notes SET text = ? WHERE id = ? AND chat_id = ?",
+            (new_text.strip(), nid, chat_id),
+        )
+        await db.commit()
+
+        if cursor.rowcount == 0:
+            return f"❌ Note #{nid} not found."
+
+        return f"📝 Note #{nid} updated"
+
+    async def delete_note(self, chat_id: int, note_id: str) -> str:
+        """Delete a note."""
+        try:
+            nid = int(note_id)
+        except (ValueError, TypeError):
+            return "❌ Invalid note ID."
+
+        db = await get_db()
+        cursor = await db.execute(
+            "DELETE FROM notes WHERE id = ? AND chat_id = ?",
+            (nid, chat_id),
+        )
+        await db.commit()
+
+        if cursor.rowcount == 0:
+            return f"❌ Note #{nid} not found."
+
+        return f"🗑️ Note #{nid} deleted"
+
     async def _list_notes(self, ctx: BotContext) -> str:
         db = await get_db()
         cursor = await db.execute(

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class BrainPlugin(Plugin):
     name = "brain"
     commands: list[str] = []
-    description = "AI brain — understands natural language and routes to commands"
+    description = "AI brain - understands natural language and routes to commands"
 
     def __init__(self) -> None:
         self._original_ctx: BotContext | None = None
@@ -80,18 +80,18 @@ class BrainPlugin(Plugin):
 
     async def _process_agent_response(self, ctx: BotContext, text: str) -> str | None:
         """Process Gemini's agent response.
-        
+
         If there are TOOL: calls, execute them and REPLACE each TOOL: line
-        with the tool result — preserving Gemini's conversational text.
+        with the tool result - preserving Gemini's conversational text.
         This keeps the bot's personality intact in a single API call.
         """
         if 'TOOL:' not in text:
             return text.strip()
-        
+
         # Split into segments: conversational text and tool calls
         lines = text.split('\n')
         output_lines = []
-        
+
         for line in lines:
             m = re.match(r'^TOOL:\s*(\w+)\((.*)\)\s*$', line.strip())
             if m:
@@ -106,9 +106,9 @@ class BrainPlugin(Plugin):
                     logger.error("Tool '%s' failed: %s", tool_name, e)
                     output_lines.append(f"⚠️ {tool_name} failed: {e}")
             else:
-                # Conversational text from Gemini — keep it
+                # Conversational text from Gemini - keep it
                 output_lines.append(line)
-        
+
         return '\n'.join(output_lines).strip()
 
 
@@ -146,7 +146,7 @@ class BrainPlugin(Plugin):
                 params[key] = params_str[val_start:i]
                 i += 1
             elif c == '[':
-                # JSON array — track bracket depth
+                # JSON array - track bracket depth
                 depth = 0
                 val_start = i
                 while i < len(params_str):
@@ -157,7 +157,7 @@ class BrainPlugin(Plugin):
                         break
                 params[key] = params_str[val_start:i]
             elif c == '{':
-                # JSON object — track brace depth
+                # JSON object - track brace depth
                 depth = 0
                 val_start = i
                 while i < len(params_str):
@@ -179,7 +179,7 @@ class BrainPlugin(Plugin):
     async def _execute_tool(self, ctx: BotContext, tool: str, params: dict) -> str:
         """Execute a tool call by routing to the appropriate plugin."""
         from app.plugins.base import PluginRegistry
-        
+
         if tool == "remind_create":
             return await self._handle_remind_create({
                 "text": params.get("text", ""),
@@ -187,7 +187,7 @@ class BrainPlugin(Plugin):
                 "alerts": [10],
                 "source_text": ctx.message_text,
             })
-        
+
         if tool == "agenda_query":
             date = params.get("date", "today")
             if date == "all":
@@ -196,7 +196,7 @@ class BrainPlugin(Plugin):
                 return await self._route_single("agenda_tomorrow", {})
             else:
                 return await self._route_single("agenda_today", {})
-        
+
         if tool == "agenda_create":
             items_str = params.get("items", "[]")
             try:
@@ -212,7 +212,7 @@ class BrainPlugin(Plugin):
                 "date": params.get("date", ""),
                 "items": items,
             })
-        
+
         if tool == "agenda_done":
             plugin = PluginRegistry.get().get_plugin("agenda")
             if plugin:
@@ -222,10 +222,10 @@ class BrainPlugin(Plugin):
                 except ValueError:
                     return "❌ Invalid ID."
             return "❌ Agenda plugin not available."
-        
+
         if tool == "search":
             return await self._route_single("search", {"query": params.get("query", "")})
-        
+
         if tool == "note_save":
             plugin = PluginRegistry.get().get_plugin("notes")
             if plugin:
@@ -233,19 +233,43 @@ class BrainPlugin(Plugin):
                     ctx.chat_id, params.get("text", ctx.message_text)
                 )
             return "📝 Note feature not available."
-        
+
+        if tool == "note_search":
+            plugin = PluginRegistry.get().get_plugin("notes")
+            if plugin:
+                return await plugin.search_notes(
+                    ctx.chat_id, params.get("query", "")
+                )
+            return "📝 Note feature not available."
+
+        if tool == "note_update":
+            plugin = PluginRegistry.get().get_plugin("notes")
+            if plugin:
+                return await plugin.update_note(
+                    ctx.chat_id, params.get("id", "0"), params.get("text", "")
+                )
+            return "📝 Note feature not available."
+
+        if tool == "note_delete":
+            plugin = PluginRegistry.get().get_plugin("notes")
+            if plugin:
+                return await plugin.delete_note(
+                    ctx.chat_id, params.get("id", "0")
+                )
+            return "📝 Note feature not available."
+
         if tool == "note_list":
             return await self._route_single("note_list", {})
-        
+
         if tool == "summarize":
             return await self._route_single("summarize", {})
-        
+
         if tool in ("pc_on", "pc_off", "pc_status"):
             return await self._route_single(tool, {})
-        
+
         if tool == "remind_list":
             return await self._route_single("remind_list", {})
-        
+
         logger.warning("Unknown tool: %s", tool)
         return f"❓ Unknown tool: {tool}"
 
